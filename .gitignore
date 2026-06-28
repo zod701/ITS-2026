@@ -4,3 +4,6 @@ test/
 img/
 
 *.pdf
+
+# 대용량 파일
+GIS/historical_panoids.csv
