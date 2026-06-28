@@ -1,6 +1,6 @@
 .claude/
 .venv/
-test_img/
-test_output/
+test/
+img/
 
 *.pdf
