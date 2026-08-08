@@ -1,0 +1,48 @@
+name: Update image map
+
+on:
+  workflow_dispatch:
+    inputs:
+      folder_id:
+        description: "Google Drive folder ID to list"
+        required: true
+      output_filename:
+        description: "Output filename under web/public/data/"
+        required: true
+        default: "image_map.json"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Write API key
+        run: echo "GOOGLE_DRIVE_API_KEY=${{ secrets.GOOGLE_DRIVE_API_KEY }}" > web/.env
+
+      - name: Build image map
+        run: |
+          python web/scripts/build_image_map.py \
+            "${{ inputs.folder_id }}" \
+            "${{ inputs.output_filename }}"
+
+      - name: Remove API key file
+        run: rm web/.env
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "web/public/data/${{ inputs.output_filename }}"
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Update ${{ inputs.output_filename }} from Drive folder ${{ inputs.folder_id }}"
+          git push

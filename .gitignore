@@ -1,6 +1,5 @@
 .claude/
 .venv/
-.github
 test/
 img/
 output/
