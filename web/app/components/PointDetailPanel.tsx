@@ -11,6 +11,7 @@ interface Props {
 export default function PointDetailPanel({ point, onClose }: Props) {
   const [imageMap, setImageMap] = useState<Record<string, string> | null>(null);
   const [segMap, setSegMap] = useState<Record<string, string> | null>(null);
+  const [depthMap, setDepthMap] = useState<Record<string, string> | null>(null);
   const [addressMap, setAddressMap] = useState<Record<string, string> | null>(null);
 
   useEffect(() => {
@@ -28,6 +29,13 @@ export default function PointDetailPanel({ point, onClose }: Props) {
   }, []);
 
   useEffect(() => {
+    fetch("/data/depth_map.json")
+      .then((res) => res.json())
+      .then(setDepthMap)
+      .catch(() => setDepthMap({}));
+  }, []);
+
+  useEffect(() => {
     fetch("/data/address_map.json")
       .then((res) => res.json())
       .then(setAddressMap)
@@ -42,6 +50,10 @@ export default function PointDetailPanel({ point, onClose }: Props) {
   const segFileId = segMap?.[key];
   const segImageUrl = segFileId
     ? `https://drive.google.com/thumbnail?id=${segFileId}&sz=w1600`
+    : null;
+  const depthFileId = depthMap?.[key];
+  const depthImageUrl = depthFileId
+    ? `https://drive.google.com/thumbnail?id=${depthFileId}&sz=w1600`
     : null;
   const address = addressMap?.[point.panoId];
 
@@ -91,6 +103,14 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           <img
             src={segImageUrl}
             alt={`지점 ${point.pointId} 세그멘테이션 결과`}
+            className="detail-panel-image"
+          />
+        )}
+        {depthImageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={depthImageUrl}
+            alt={`지점 ${point.pointId} 깊이 추정 결과`}
             className="detail-panel-image"
           />
         )}
