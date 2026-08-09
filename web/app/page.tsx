@@ -3,21 +3,32 @@
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import GithubMarkdownButton from "./components/GithubMarkdownButton";
+import MapLegend, { GRADES, NO_DATA_KEY, type GradeFilterKey } from "./components/MapLegend";
 import PointDetailPanel from "./components/PointDetailPanel";
 import ThemeToggle from "./components/ThemeToggle";
 import type { SelectedPoint } from "./types";
 
 const MapView = dynamic(() => import("./components/MapView"), { ssr: false });
 
+const ALL_GRADE_KEYS: GradeFilterKey[] = [...GRADES, NO_DATA_KEY];
+
 export default function Home() {
   const [selected, setSelected] = useState<SelectedPoint | null>(null);
+  const [visibleGrades, setVisibleGrades] = useState<Record<GradeFilterKey, boolean>>(
+    Object.fromEntries(ALL_GRADE_KEYS.map((k) => [k, true])) as Record<GradeFilterKey, boolean>
+  );
+
+  const toggleGrade = (key: GradeFilterKey) => {
+    setVisibleGrades((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   return (
     <main style={{ position: "relative", height: "100vh", width: "100vw" }}>
-      <MapView onSelect={setSelected} />
+      <MapView onSelect={setSelected} visibleGrades={visibleGrades} />
       {selected && (
         <PointDetailPanel point={selected} onClose={() => setSelected(null)} />
       )}
+      <MapLegend visible={visibleGrades} onToggle={toggleGrade} style={{ left: 12, top: 90 }} />
       <ThemeToggle style={{ right: 24, top: 24 }} />
       <GithubMarkdownButton
         filenames={["README.md", "readme.md"]}

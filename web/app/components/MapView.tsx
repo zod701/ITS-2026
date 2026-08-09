@@ -3,6 +3,13 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import type { SelectedPoint } from "../types";
+import {
+  GRADE_COLORS,
+  NO_DATA_COLOR,
+  NO_DATA_KEY,
+  type Grade,
+  type GradeFilterKey,
+} from "./MapLegend";
 
 const GANGNEUNG_BOUNDS: [[number, number], [number, number]] = [
   [37.7321168224, 128.8598787651],
@@ -14,6 +21,21 @@ interface RoadFeature {
   geometry: { type: "LineString"; coordinates: [number, number][] };
   properties: { edge_id: string };
 }
+
+interface RoadDsiRecord {
+  dsi: number;
+  grade: Grade;
+  n: number;
+}
+
+type RoadDsiMap = Record<string, RoadDsiRecord>;
+
+const GRADE_COLORS_HOVER: Record<Grade, string> = {
+  Safe: "#16a34a",
+  Caution: "#ca8a04",
+  "High-risk": "#dc2626",
+};
+const NO_DATA_COLOR_HOVER = "#1d4ed8";
 
 interface RoadsGeoJson {
   type: "FeatureCollection";
@@ -33,6 +55,7 @@ interface PointsGeoJson {
 
 interface Props {
   onSelect: (point: SelectedPoint) => void;
+  visibleGrades: Record<GradeFilterKey, boolean>;
 }
 
 function isDarkTheme(): boolean {
@@ -67,13 +90,24 @@ function nearestPoint(
   return best;
 }
 
-export default function MapView({ onSelect }: Props) {
+function gradeKeyFor(roadDsi: RoadDsiMap, edgeId: string): GradeFilterKey {
+  return roadDsi[edgeId]?.grade ?? NO_DATA_KEY;
+}
+
+export default function MapView({ onSelect, visibleGrades }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onSelectRef = useRef(onSelect);
+  const visibleGradesRef = useRef(visibleGrades);
+  const applyFilterRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
+
+  useEffect(() => {
+    visibleGradesRef.current = visibleGrades;
+    applyFilterRef.current();
+  }, [visibleGrades]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -103,6 +137,7 @@ export default function MapView({ onSelect }: Props) {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
     let points: PointFeature[] = [];
+    let roadDsi: RoadDsiMap = {};
 
     fetch("/data/points.geojson")
       .then((res) => res.json())
@@ -110,38 +145,67 @@ export default function MapView({ onSelect }: Props) {
         points = data.features;
       });
 
-    fetch("/data/roads.geojson")
-      .then((res) => res.json())
-      .then((data: RoadsGeoJson) => {
-        const roadsLayer = L.geoJSON(data as GeoJSON.GeoJsonObject, {
-          style: {
-            color: "#2563eb",
-            weight: 4,
-            opacity: 0.85,
-          },
-          onEachFeature: (_feature, layer) => {
-            layer.on("mouseover", () => {
-              (layer as L.Path).setStyle({ color: "#1d4ed8", weight: 6 });
+    const colorFor = (edgeId: string) => {
+      const rec = roadDsi[edgeId];
+      return rec ? GRADE_COLORS[rec.grade] : NO_DATA_COLOR;
+    };
+    const hoverColorFor = (edgeId: string) => {
+      const rec = roadDsi[edgeId];
+      return rec ? GRADE_COLORS_HOVER[rec.grade] : NO_DATA_COLOR_HOVER;
+    };
+
+    Promise.all([
+      fetch("/data/roads.geojson").then((res) => res.json()),
+      fetch("/data/road_dsi_map.json")
+        .then((res) => res.json())
+        .catch(() => ({})),
+    ]).then(([data, dsiData]: [RoadsGeoJson, RoadDsiMap]) => {
+      roadDsi = dsiData;
+      const roadsLayer = L.geoJSON(data as GeoJSON.GeoJsonObject, {
+        style: (feature) => ({
+          color: colorFor((feature as unknown as RoadFeature).properties.edge_id),
+          weight: 4,
+          opacity: 0.85,
+        }),
+        onEachFeature: (feature, layer) => {
+          const edgeId = (feature as unknown as RoadFeature).properties.edge_id;
+          layer.on("mouseover", () => {
+            if (!visibleGradesRef.current[gradeKeyFor(roadDsi, edgeId)]) return;
+            (layer as L.Path).setStyle({ color: hoverColorFor(edgeId), weight: 6 });
+          });
+          layer.on("mouseout", () => {
+            if (!visibleGradesRef.current[gradeKeyFor(roadDsi, edgeId)]) return;
+            (layer as L.Path).setStyle({ color: colorFor(edgeId), weight: 4 });
+          });
+          layer.on("click", (e: L.LeafletMouseEvent) => {
+            if (!visibleGradesRef.current[gradeKeyFor(roadDsi, edgeId)]) return;
+            if (points.length === 0) return;
+            const nearest = nearestPoint(points, e.latlng.lat, e.latlng.lng);
+            if (!nearest) return;
+            const [lon, lat] = nearest.geometry.coordinates;
+            onSelectRef.current({
+              pointId: nearest.properties.point_id,
+              panoId: nearest.properties.pano_id,
+              lat,
+              lon,
             });
-            layer.on("mouseout", () => {
-              (layer as L.Path).setStyle({ color: "#2563eb", weight: 4 });
-            });
-            layer.on("click", (e: L.LeafletMouseEvent) => {
-              if (points.length === 0) return;
-              const nearest = nearestPoint(points, e.latlng.lat, e.latlng.lng);
-              if (!nearest) return;
-              const [lon, lat] = nearest.geometry.coordinates;
-              onSelectRef.current({
-                pointId: nearest.properties.point_id,
-                panoId: nearest.properties.pano_id,
-                lat,
-                lon,
-              });
-            });
-          },
-        });
-        roadsLayer.addTo(map);
+          });
+        },
       });
+      roadsLayer.addTo(map);
+
+      // grade 체크박스(범례)로 토글될 때 해당 등급 도로만 지도에 남기고 나머지는 제거.
+      applyFilterRef.current = () => {
+        roadsLayer.eachLayer((layer) => {
+          const feature = (layer as L.Path & { feature: RoadFeature }).feature;
+          const edgeId = feature.properties.edge_id;
+          const show = visibleGradesRef.current[gradeKeyFor(roadDsi, edgeId)];
+          const el = (layer as L.Path).getElement();
+          if (el) (el as HTMLElement).style.display = show ? "" : "none";
+        });
+      };
+      applyFilterRef.current();
+    });
 
     return () => {
       observer.disconnect();

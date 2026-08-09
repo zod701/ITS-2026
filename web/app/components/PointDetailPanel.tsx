@@ -12,6 +12,7 @@ export default function PointDetailPanel({ point, onClose }: Props) {
   const [imageMap, setImageMap] = useState<Record<string, string> | null>(null);
   const [segMap, setSegMap] = useState<Record<string, string> | null>(null);
   const [depthMap, setDepthMap] = useState<Record<string, string> | null>(null);
+  const [bevMap, setBevMap] = useState<Record<string, string> | null>(null);
   const [addressMap, setAddressMap] = useState<Record<string, string> | null>(null);
 
   useEffect(() => {
@@ -36,6 +37,13 @@ export default function PointDetailPanel({ point, onClose }: Props) {
   }, []);
 
   useEffect(() => {
+    fetch("/data/bev_map.json")
+      .then((res) => res.json())
+      .then(setBevMap)
+      .catch(() => setBevMap({}));
+  }, []);
+
+  useEffect(() => {
     fetch("/data/address_map.json")
       .then((res) => res.json())
       .then(setAddressMap)
@@ -54,6 +62,10 @@ export default function PointDetailPanel({ point, onClose }: Props) {
   const depthFileId = depthMap?.[key];
   const depthImageUrl = depthFileId
     ? `https://drive.google.com/thumbnail?id=${depthFileId}&sz=w1600`
+    : null;
+  const bevFileId = bevMap?.[key];
+  const bevImageUrl = bevFileId
+    ? `https://drive.google.com/thumbnail?id=${bevFileId}&sz=w1600`
     : null;
   const address = addressMap?.[point.panoId];
 
@@ -82,38 +94,70 @@ export default function PointDetailPanel({ point, onClose }: Props) {
             </div>
           </dl>
         </div>
-        <div className="detail-panel-images-col">
-          {imageMap === null && <p className="status-text">이미지 정보를 불러오는 중…</p>}
-          {imageMap !== null && !imageUrl && (
-            <p className="status-text">이 지점의 이미지가 아직 등록되지 않았습니다.</p>
+        <div className="detail-panel-images-row">
+          <div className="detail-panel-images-col">
+            {imageMap === null && <p className="status-text">이미지 정보를 불러오는 중…</p>}
+            {imageMap !== null && !imageUrl && (
+              <p className="status-text">이 지점의 이미지가 아직 등록되지 않았습니다.</p>
+            )}
+            {imageUrl && (
+              <div className="pano-crop">
+                <div className="pano-crop-inner">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageUrl}
+                    alt={`지점 ${point.pointId} 스트리트뷰`}
+                    className="pano-crop-image"
+                  />
+                </div>
+              </div>
+            )}
+            {segImageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={segImageUrl}
+                alt={`지점 ${point.pointId} 세그멘테이션 결과`}
+                className="detail-panel-image"
+              />
+            )}
+            {depthImageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={depthImageUrl}
+                alt={`지점 ${point.pointId} 깊이 추정 결과`}
+                className="detail-panel-image"
+              />
+            )}
+          </div>
+          {bevImageUrl && (
+            <div className="bev-occupancy-crop">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={bevImageUrl}
+                alt={`지점 ${point.pointId} BEV 점유 격자`}
+                className="bev-occupancy-crop-image"
+              />
+            </div>
           )}
-          {imageUrl && (
-            <div className="pano-crop">
-              <div className="pano-crop-inner">
+          {bevImageUrl && (
+            <div className="bev-shadow-col">
+              <div className="bev-shadow-crop bev-shadow-crop-1">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={imageUrl}
-                  alt={`지점 ${point.pointId} 스트리트뷰`}
-                  className="pano-crop-image"
+                  src={bevImageUrl}
+                  alt={`지점 ${point.pointId} BEV 음영(건물)`}
+                  className="bev-shadow-crop-image bev-shadow-crop-image-1"
+                />
+              </div>
+              <div className="bev-shadow-crop bev-shadow-crop-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={bevImageUrl}
+                  alt={`지점 ${point.pointId} BEV 음영(차량 포함)`}
+                  className="bev-shadow-crop-image bev-shadow-crop-image-2"
                 />
               </div>
             </div>
-          )}
-          {segImageUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={segImageUrl}
-              alt={`지점 ${point.pointId} 세그멘테이션 결과`}
-              className="detail-panel-image"
-            />
-          )}
-          {depthImageUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={depthImageUrl}
-              alt={`지점 ${point.pointId} 깊이 추정 결과`}
-              className="detail-panel-image"
-            />
           )}
         </div>
       </div>
@@ -173,19 +217,77 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           padding: 16px;
           display: flex;
           flex-direction: row;
-          align-items: flex-start;
+          align-items: stretch;
           gap: 16px;
           flex: 1;
           min-height: 0;
-          overflow-y: auto;
+          overflow: auto;
+        }
+        .detail-panel-images-row {
+          display: flex;
+          flex-direction: row;
+          align-items: flex-start;
+          align-self: flex-start;
+          gap: 16px;
+          flex: 1;
+          min-width: 0;
         }
         .detail-panel-images-col {
           display: flex;
           flex-direction: column;
           align-items: stretch;
           gap: 16px;
-          flex: 1;
-          min-width: 0;
+          flex: 1 1 0;
+          min-width: 320px;
+          max-width: 640px;
+        }
+        /* BEV 결과 이미지(649x2187)는 위에서부터 제목 텍스트 + 3개 정사각형에 가까운
+           패널(occupancy / shadow-buildings / shadow+vehicles, 각 649x~625px)이 세로로
+           이어져 있다. 패널별 위치를 실측(픽셀)해 세 조각으로 각각 크롭한다:
+           occupancy는 크게(왼쪽 사진들과 나란히), 두 shadow 패널은 작게 그 옆에 세로로. */
+        .bev-occupancy-crop {
+          position: relative;
+          width: 520px;
+          aspect-ratio: 649 / 626;
+          overflow: hidden;
+          border-radius: 4px;
+          flex-shrink: 0;
+        }
+        .bev-occupancy-crop-image {
+          display: block;
+          position: absolute;
+          left: 0;
+          top: -27.7955%;
+          width: 100%;
+          height: 349.361%;
+        }
+        .bev-shadow-col {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          width: 250px;
+          flex-shrink: 0;
+        }
+        .bev-shadow-crop {
+          position: relative;
+          width: 250px;
+          aspect-ratio: 649 / 625;
+          overflow: hidden;
+          border-radius: 4px;
+          flex-shrink: 0;
+        }
+        .bev-shadow-crop-image {
+          display: block;
+          position: absolute;
+          left: 0;
+          width: 100%;
+          height: 349.92%;
+        }
+        .bev-shadow-crop-image-1 {
+          top: -137.92%;
+        }
+        .bev-shadow-crop-image-2 {
+          top: -248%;
         }
         dt {
           color: var(--text-muted);
@@ -200,7 +302,7 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           font-size: 14px;
         }
         .detail-panel-image {
-          width: 45%;
+          width: 100%;
           height: auto;
           border-radius: 4px;
           object-fit: contain;
@@ -209,11 +311,10 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           /* 원본은 좌/정면/우/후/아래/위 6분할 가로 스트립. 오른쪽 2/6(아래/위)을
              화면에서만 잘라내 4/6(좌/정면/우/후)만 보여준다 (원본 파일은 그대로 둠).
              aspect-ratio 대신 padding-top 비율 트릭을 써서 flex 자식으로 있어도
-             높이가 찌그러지지 않고 항상 너비의 1/4(4:1)로 고정되게 한다.
-             기존 50% 폭의 0.9배 = 45%. */
+             높이가 찌그러지지 않고 항상 너비의 1/4(4:1)로 고정되게 한다. */
           position: relative;
-          width: 45%;
-          padding-top: 11.25%; /* width(45%) 기준 4:1 비율 = 45% / 4 */
+          width: 100%;
+          padding-top: 25%; /* width(100%) 기준 4:1 비율 */
           overflow: hidden;
           border-radius: 4px;
           flex-shrink: 0;

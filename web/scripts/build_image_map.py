@@ -16,7 +16,11 @@ The API key is read from web/.env (GOOGLE_DRIVE_API_KEY=...), which is
 gitignored, so it is never committed.
 
 Usage:
-  python build_image_map.py <drive_folder_id> [output_filename.json]
+  python build_image_map.py <drive_folder_id> [output_filename.json] [filename_suffix]
+
+filename_suffix: text between pano_id and .jpg in the source filenames, e.g. "_bev360"
+  for point_{id}_pano_{pano}_bev360.jpg (BEV result images). Defaults to "" for plain
+  point_{id}_pano_{pano}.jpg files.
 """
 import json
 import re
@@ -29,7 +33,9 @@ WEB_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = WEB_DIR / "public" / "data"
 ENV_PATH = WEB_DIR / ".env"
 
-FILENAME_RE = re.compile(r"^point_(?P<point_id>\d+)_pano_(?P<pano_id>.+)\.jpg$")
+
+def make_filename_re(suffix: str) -> re.Pattern:
+    return re.compile(rf"^point_(?P<point_id>\d+)_pano_(?P<pano_id>.+){re.escape(suffix)}\.jpg$")
 
 
 def load_api_key() -> str:
@@ -73,12 +79,14 @@ def list_drive_files(folder_id: str, api_key: str):
 
 
 def main():
-    if len(sys.argv) not in (2, 3):
-        print("Usage: python build_image_map.py <drive_folder_id> [output_filename.json]")
+    if len(sys.argv) not in (2, 3, 4):
+        print("Usage: python build_image_map.py <drive_folder_id> [output_filename.json] [filename_suffix]")
         sys.exit(1)
     folder_id = sys.argv[1]
-    out_filename = sys.argv[2] if len(sys.argv) == 3 else "image_map.json"
+    out_filename = sys.argv[2] if len(sys.argv) >= 3 else "image_map.json"
+    filename_suffix = sys.argv[3] if len(sys.argv) == 4 else ""
     out_path = DATA_DIR / out_filename
+    filename_re = make_filename_re(filename_suffix)
     api_key = load_api_key()
 
     files = list_drive_files(folder_id, api_key)
@@ -86,7 +94,7 @@ def main():
     mapping = {}
     unmatched = 0
     for f in files:
-        m = FILENAME_RE.match(f["name"])
+        m = filename_re.match(f["name"])
         if not m:
             unmatched += 1
             continue
