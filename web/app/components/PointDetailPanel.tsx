@@ -10,6 +10,7 @@ interface Props {
 
 export default function PointDetailPanel({ point, onClose }: Props) {
   const [imageMap, setImageMap] = useState<Record<string, string> | null>(null);
+  const [segMap, setSegMap] = useState<Record<string, string> | null>(null);
   const [addressMap, setAddressMap] = useState<Record<string, string> | null>(null);
 
   useEffect(() => {
@@ -17,6 +18,13 @@ export default function PointDetailPanel({ point, onClose }: Props) {
       .then((res) => res.json())
       .then(setImageMap)
       .catch(() => setImageMap({}));
+  }, []);
+
+  useEffect(() => {
+    fetch("/data/seg_map.json")
+      .then((res) => res.json())
+      .then(setSegMap)
+      .catch(() => setSegMap({}));
   }, []);
 
   useEffect(() => {
@@ -30,6 +38,10 @@ export default function PointDetailPanel({ point, onClose }: Props) {
   const fileId = imageMap?.[key];
   const imageUrl = fileId
     ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w1600`
+    : null;
+  const segFileId = segMap?.[key];
+  const segImageUrl = segFileId
+    ? `https://drive.google.com/thumbnail?id=${segFileId}&sz=w1600`
     : null;
   const address = addressMap?.[point.panoId];
 
@@ -67,6 +79,14 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           <img
             src={imageUrl}
             alt={`지점 ${point.pointId} 스트리트뷰`}
+            className="detail-panel-image"
+          />
+        )}
+        {segImageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={segImageUrl}
+            alt={`지점 ${point.pointId} 세그멘테이션 결과`}
             className="detail-panel-image"
           />
         )}
