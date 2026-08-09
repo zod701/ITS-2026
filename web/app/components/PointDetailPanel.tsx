@@ -75,12 +75,16 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           <p className="status-text">이 지점의 이미지가 아직 등록되지 않았습니다.</p>
         )}
         {imageUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={imageUrl}
-            alt={`지점 ${point.pointId} 스트리트뷰`}
-            className="detail-panel-image"
-          />
+          <div className="pano-crop">
+            <div className="pano-crop-inner">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imageUrl}
+                alt={`지점 ${point.pointId} 스트리트뷰`}
+                className="pano-crop-image"
+              />
+            </div>
+          </div>
         )}
         {segImageUrl && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -98,7 +102,7 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           bottom: 0;
           left: 0;
           width: 100%;
-          height: min(320px, 45vh);
+          height: min(640px, 80vh);
           background: white;
           box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.15);
           z-index: 1000;
@@ -144,11 +148,12 @@ export default function PointDetailPanel({ point, onClose }: Props) {
         .detail-panel-body {
           padding: 16px;
           display: flex;
-          flex-direction: row;
-          align-items: flex-start;
+          flex-direction: column;
+          align-items: stretch;
+          gap: 16px;
           flex: 1;
           min-height: 0;
-          overflow-x: auto;
+          overflow-y: auto;
         }
         dt {
           color: #666;
@@ -163,12 +168,35 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           font-size: 14px;
         }
         .detail-panel-image {
-          height: 100%;
-          max-height: 100%;
-          width: auto;
-          max-width: 100%;
+          width: 100%;
+          height: auto;
           border-radius: 4px;
           object-fit: contain;
+        }
+        .pano-crop {
+          /* 원본은 좌/정면/우/후/아래/위 6분할 가로 스트립. 오른쪽 2/6(아래/위)을
+             화면에서만 잘라내 4/6(좌/정면/우/후)만 보여준다 (원본 파일은 그대로 둠).
+             aspect-ratio 대신 padding-top 비율 트릭을 써서 flex 자식으로 있어도
+             높이가 찌그러지지 않고 항상 너비의 1/4(4:1)로 고정되게 한다. */
+          position: relative;
+          width: 100%;
+          padding-top: 25%; /* 4:1 비율 */
+          overflow: hidden;
+          border-radius: 4px;
+          flex-shrink: 0;
+        }
+        .pano-crop-inner {
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
+        }
+        .pano-crop-image {
+          display: block;
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 150%; /* 6/4 = 1.5배로 확대해 4칸 폭이 컨테이너 전체를 채우게 함 */
+          height: 100%;
         }
       `}</style>
     </aside>
