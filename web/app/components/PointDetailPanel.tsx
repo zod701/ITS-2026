@@ -168,7 +168,7 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           font-size: 14px;
         }
         .detail-panel-image {
-          width: 100%;
+          width: 50%;
           height: auto;
           border-radius: 4px;
           object-fit: contain;
@@ -179,8 +179,8 @@ export default function PointDetailPanel({ point, onClose }: Props) {
              aspect-ratio 대신 padding-top 비율 트릭을 써서 flex 자식으로 있어도
              높이가 찌그러지지 않고 항상 너비의 1/4(4:1)로 고정되게 한다. */
           position: relative;
-          width: 100%;
-          padding-top: 25%; /* 4:1 비율 */
+          width: 50%;
+          padding-top: 12.5%; /* width(50%) 기준 4:1 비율 = 50% / 4 */
           overflow: hidden;
           border-radius: 4px;
           flex-shrink: 0;
