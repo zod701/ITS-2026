@@ -35,6 +35,20 @@ interface Props {
   onSelect: (point: SelectedPoint) => void;
 }
 
+function isDarkTheme(): boolean {
+  const attr = document.documentElement.getAttribute("data-theme");
+  if (attr === "light") return false;
+  if (attr === "dark") return true;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+const LIGHT_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const LIGHT_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const DARK_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+
 function nearestPoint(
   points: PointFeature[],
   lat: number,
@@ -66,11 +80,27 @@ export default function MapView({ onSelect }: Props) {
 
     const map = L.map(containerRef.current).fitBounds(GANGNEUNG_BOUNDS);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    // 다크모드일 때는 CARTO Dark Matter 타일(무료, OSM 데이터 기반)로 전환 —
+    // 기본 OSM 타일은 항상 밝은 배경이라 다크모드에서도 그대로면 눈부심.
+    // data-theme(토글 수동 선택)을 시스템 설정보다 우선하고, 토글이 바뀌면
+    // MutationObserver로 감지해 타일 레이어를 즉시 교체한다.
+    let currentDark = isDarkTheme();
+    let tileLayer = L.tileLayer(currentDark ? DARK_TILE_URL : LIGHT_TILE_URL, {
+      attribution: currentDark ? DARK_ATTRIBUTION : LIGHT_ATTRIBUTION,
       maxZoom: 19,
     }).addTo(map);
+
+    const observer = new MutationObserver(() => {
+      const dark = isDarkTheme();
+      if (dark === currentDark) return;
+      currentDark = dark;
+      map.removeLayer(tileLayer);
+      tileLayer = L.tileLayer(dark ? DARK_TILE_URL : LIGHT_TILE_URL, {
+        attribution: dark ? DARK_ATTRIBUTION : LIGHT_ATTRIBUTION,
+        maxZoom: 19,
+      }).addTo(map);
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
     let points: PointFeature[] = [];
 
@@ -114,6 +144,7 @@ export default function MapView({ onSelect }: Props) {
       });
 
     return () => {
+      observer.disconnect();
       map.remove();
     };
   }, []);

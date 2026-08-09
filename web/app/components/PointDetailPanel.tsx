@@ -59,61 +59,63 @@ export default function PointDetailPanel({ point, onClose }: Props) {
 
   return (
     <aside className="detail-panel">
-      <div className="detail-panel-header">
-        <h2>지점 #{point.pointId}</h2>
-        <dl className="detail-panel-meta">
-          <div className="meta-item">
-            <dt>Pano ID</dt>
-            <dd>{point.panoId}</dd>
-          </div>
-          <div className="meta-item">
-            <dt>위치</dt>
-            <dd>
-              {point.lat.toFixed(6)}, {point.lon.toFixed(6)}
-            </dd>
-          </div>
-          <div className="meta-item">
-            <dt>주소</dt>
-            <dd>{address ?? "-"}</dd>
-          </div>
-        </dl>
-        <button onClick={onClose} aria-label="닫기">
-          ✕
-        </button>
-      </div>
+      <button className="close-button" onClick={onClose} aria-label="닫기">
+        ✕
+      </button>
       <div className="detail-panel-body">
-        {imageMap === null && <p className="status-text">이미지 정보를 불러오는 중…</p>}
-        {imageMap !== null && !imageUrl && (
-          <p className="status-text">이 지점의 이미지가 아직 등록되지 않았습니다.</p>
-        )}
-        {imageUrl && (
-          <div className="pano-crop">
-            <div className="pano-crop-inner">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imageUrl}
-                alt={`지점 ${point.pointId} 스트리트뷰`}
-                className="pano-crop-image"
-              />
+        <div className="detail-panel-meta-col">
+          <h2>지점 #{point.pointId}</h2>
+          <dl className="detail-panel-meta">
+            <div className="meta-item">
+              <dt>Pano ID</dt>
+              <dd>{point.panoId}</dd>
             </div>
-          </div>
-        )}
-        {segImageUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={segImageUrl}
-            alt={`지점 ${point.pointId} 세그멘테이션 결과`}
-            className="detail-panel-image"
-          />
-        )}
-        {depthImageUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={depthImageUrl}
-            alt={`지점 ${point.pointId} 깊이 추정 결과`}
-            className="detail-panel-image"
-          />
-        )}
+            <div className="meta-item">
+              <dt>위치</dt>
+              <dd>
+                {point.lat.toFixed(6)}, {point.lon.toFixed(6)}
+              </dd>
+            </div>
+            <div className="meta-item">
+              <dt>주소</dt>
+              <dd>{address ?? "-"}</dd>
+            </div>
+          </dl>
+        </div>
+        <div className="detail-panel-images-col">
+          {imageMap === null && <p className="status-text">이미지 정보를 불러오는 중…</p>}
+          {imageMap !== null && !imageUrl && (
+            <p className="status-text">이 지점의 이미지가 아직 등록되지 않았습니다.</p>
+          )}
+          {imageUrl && (
+            <div className="pano-crop">
+              <div className="pano-crop-inner">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imageUrl}
+                  alt={`지점 ${point.pointId} 스트리트뷰`}
+                  className="pano-crop-image"
+                />
+              </div>
+            </div>
+          )}
+          {segImageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={segImageUrl}
+              alt={`지점 ${point.pointId} 세그멘테이션 결과`}
+              className="detail-panel-image"
+            />
+          )}
+          {depthImageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={depthImageUrl}
+              alt={`지점 ${point.pointId} 깊이 추정 결과`}
+              className="detail-panel-image"
+            />
+          )}
+        </div>
       </div>
 
       <style jsx>{`
@@ -123,60 +125,70 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           left: 0;
           width: 100%;
           height: min(640px, 80vh);
-          background: white;
+          background: var(--panel-bg);
+          color: var(--foreground);
           box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.15);
           z-index: 1000;
           display: flex;
           flex-direction: column;
           overflow: hidden;
         }
-        .detail-panel-header {
-          display: flex;
-          align-items: center;
-          gap: 24px;
-          padding: 12px 16px;
-          border-bottom: 1px solid #e5e5e5;
-          flex-shrink: 0;
-        }
-        .detail-panel-header h2 {
-          font-size: 18px;
-          flex-shrink: 0;
-        }
-        .detail-panel-header button {
+        .close-button {
+          position: absolute;
+          top: 12px;
+          right: 16px;
           border: none;
           background: none;
+          color: var(--foreground);
           font-size: 18px;
           cursor: pointer;
           padding: 4px 8px;
-          margin-left: auto;
+          z-index: 1;
+        }
+        .detail-panel-meta-col {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
           flex-shrink: 0;
+          width: 330px;
+          background: var(--panel-meta-bg);
+          border-radius: 8px;
+          padding: 16px;
+        }
+        .detail-panel-meta-col h2 {
+          font-size: 18px;
         }
         .detail-panel-meta {
           display: flex;
-          flex-direction: row;
-          gap: 24px;
+          flex-direction: column;
+          gap: 12px;
           font-size: 14px;
-          overflow-x: auto;
         }
         .meta-item {
           display: flex;
-          flex-direction: row;
-          gap: 6px;
-          white-space: nowrap;
-          flex-shrink: 0;
+          flex-direction: column;
+          gap: 2px;
         }
         .detail-panel-body {
           padding: 16px;
           display: flex;
-          flex-direction: column;
-          align-items: stretch;
+          flex-direction: row;
+          align-items: flex-start;
           gap: 16px;
           flex: 1;
           min-height: 0;
           overflow-y: auto;
         }
+        .detail-panel-images-col {
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+          gap: 16px;
+          flex: 1;
+          min-width: 0;
+        }
         dt {
-          color: #666;
+          color: var(--text-muted);
           margin: 0;
         }
         dd {
@@ -184,11 +196,11 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           word-break: break-all;
         }
         .status-text {
-          color: #666;
+          color: var(--text-muted);
           font-size: 14px;
         }
         .detail-panel-image {
-          width: 50%;
+          width: 45%;
           height: auto;
           border-radius: 4px;
           object-fit: contain;
@@ -197,10 +209,11 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           /* 원본은 좌/정면/우/후/아래/위 6분할 가로 스트립. 오른쪽 2/6(아래/위)을
              화면에서만 잘라내 4/6(좌/정면/우/후)만 보여준다 (원본 파일은 그대로 둠).
              aspect-ratio 대신 padding-top 비율 트릭을 써서 flex 자식으로 있어도
-             높이가 찌그러지지 않고 항상 너비의 1/4(4:1)로 고정되게 한다. */
+             높이가 찌그러지지 않고 항상 너비의 1/4(4:1)로 고정되게 한다.
+             기존 50% 폭의 0.9배 = 45%. */
           position: relative;
-          width: 50%;
-          padding-top: 12.5%; /* width(50%) 기준 4:1 비율 = 50% / 4 */
+          width: 45%;
+          padding-top: 11.25%; /* width(45%) 기준 4:1 비율 = 45% / 4 */
           overflow: hidden;
           border-radius: 4px;
           flex-shrink: 0;

@@ -11,6 +11,7 @@ const BRANCH = "main";
 interface CommitInfo {
   sha: string;
   date: string;
+  message: string;
 }
 
 interface Props {
@@ -53,6 +54,7 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
         setCommit({
           sha: latest.sha,
           date: latest.commit.author.date,
+          message: latest.commit.message.split("\n")[0],
         });
       })
       .catch(() => setCommitError(true));
@@ -99,7 +101,7 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
                 {commit && (
                   <>
                     <span>
-                      Commit: <code>{commit.sha.slice(0, 7)}</code>
+                      {commit.message} (<code>{commit.sha.slice(0, 7)}</code>)
                     </span>
                     <span>Last commit: {new Date(commit.date).toLocaleString("ko-KR")}</span>
                   </>
@@ -129,7 +131,7 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
           height: 48px;
           border-radius: 50%;
           border: none;
-          background: #24292f;
+          background: var(--fab-bg);
           color: white;
           display: flex;
           align-items: center;
@@ -138,7 +140,7 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
         .md-fab:hover {
-          background: #000;
+          background: var(--fab-bg-hover);
         }
         .md-modal-backdrop {
           position: fixed;
@@ -150,7 +152,8 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
           justify-content: center;
         }
         .md-modal {
-          background: white;
+          background: var(--panel-bg);
+          color: var(--foreground);
           border-radius: 8px;
           width: min(680px, 90vw);
           max-height: 80vh;
@@ -164,7 +167,7 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
           align-items: center;
           justify-content: space-between;
           padding: 16px;
-          border-bottom: 1px solid #e5e5e5;
+          border-bottom: 1px solid var(--border-color);
         }
         .md-modal-header h2 {
           font-weight: 600;
@@ -173,6 +176,7 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
         .md-modal-header button {
           border: none;
           background: none;
+          color: var(--foreground);
           font-size: 18px;
           cursor: pointer;
           padding: 4px 8px;
@@ -183,7 +187,7 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
         }
         .repo-link {
           display: inline-block;
-          color: #2563eb;
+          color: var(--link-color);
           word-break: break-all;
           margin-bottom: 12px;
         }
@@ -195,12 +199,12 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
           flex-direction: column;
           gap: 4px;
           font-size: 14px;
-          color: #444;
+          color: var(--text-secondary);
           margin-bottom: 12px;
         }
         hr {
           border: none;
-          border-top: 1px solid #e5e5e5;
+          border-top: 1px solid var(--border-color);
           margin-bottom: 12px;
         }
         .markdown-content {
@@ -222,20 +226,20 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
           margin: 8px 0;
         }
         .markdown-content :global(code) {
-          background: #f5f5f5;
+          background: var(--code-bg);
           padding: 2px 4px;
           border-radius: 4px;
           font-size: 13px;
           font-family: "SFMono-Regular", Consolas, monospace;
         }
         .markdown-content :global(pre) {
-          background: #f5f5f5;
+          background: var(--code-bg);
           padding: 12px;
           border-radius: 4px;
           overflow-x: auto;
         }
         .markdown-content :global(a) {
-          color: #2563eb;
+          color: var(--link-color);
         }
       `}</style>
     </>

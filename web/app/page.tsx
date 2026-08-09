@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useState } from "react";
 import GithubMarkdownButton from "./components/GithubMarkdownButton";
 import PointDetailPanel from "./components/PointDetailPanel";
+import ThemeToggle from "./components/ThemeToggle";
 import type { SelectedPoint } from "./types";
 
 const MapView = dynamic(() => import("./components/MapView"), { ssr: false });
@@ -17,6 +18,7 @@ export default function Home() {
       {selected && (
         <PointDetailPanel point={selected} onClose={() => setSelected(null)} />
       )}
+      <ThemeToggle style={{ right: 24, top: 24 }} />
       <GithubMarkdownButton
         filenames={["README.md", "readme.md"]}
         title="GitHub"
