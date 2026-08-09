@@ -5,5 +5,7 @@ img/
 output/
 
 *.pdf
+*.ps1
 
+rclone_log.txt
 GIS/historical_panoids.csv

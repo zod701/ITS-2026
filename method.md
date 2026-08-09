@@ -14,19 +14,19 @@
 ## Step 0: 파노라마 전처리 (`00_preprocess.ipynb`)
 
 ### 목표
-360° 파노라마(256×1024)를 수평 방향으로 4등분해 좌·정면·우·후방 4개의 방향별 크롭 이미지를 생성한다.
+360° 파노라마(256×1536)는 좌·정면·우·후방·바닥·하늘 순서로 정확히 수평 6등분되어 있다. 이 중 바닥·하늘(오른쪽 2/6)은 버리고, 왼쪽 4/6(좌·정면·우·후)만 방향별 크롭 이미지로 추출한다.
 
 ### 입력
-- `test_img/*.jpg` — 360° 파노라마 이미지 (573장)
+- `img/*.jpg` — 360° 파노라마 이미지 (36,367장, `exclude/` 하위는 비재귀 glob으로 자연 제외)
 
 ### 출력
-- `test_output/00_front/{stem}_{dir}.jpg` — 방향별 크롭 이미지 (파노라마당 4장, 총 2,292장)
-- `test_output/00_front/{stem}_{dir}_cam.json` — 핀홀 카메라 파라미터 (K, hfov, direction, yaw_deg)
+- `output/00_front/{stem}_{dir}.jpg` — 방향별 크롭 이미지 (파노라마당 4장, 총 145,468장)
+- `output/00_front/{stem}_{dir}_cam.json` — 핀홀 카메라 파라미터 (K, hfov, direction, yaw_deg)
 
 ### 방법
 
 #### 1. 4방향 분할
-파노라마를 수평 4등분하여 각 90° 범위의 뷰를 생성한다.
+파노라마를 수평 6등분하여 앞의 4구간(좌·정면·우·후방, 각 90°)만 사용한다.
 
 | 인덱스 | 방향 | yaw_deg |
 |--------|------|---------|
@@ -53,12 +53,13 @@
 각 방향 크롭에서 자율주행 시야를 차단하는 정적 구조물(건물, 벽, 울타리, 가로수, 기둥 등)을 픽셀 단위로 분리한다.
 
 ### 입력
-- `test_output/00_front/*_{left,front,right,back}.jpg` — Step 0 4방향 크롭 (2,292장)
+- `output/00_front/*_{left,front,right,back}.jpg` — Step 0 4방향 크롭 (145,468장)
 
 ### 출력
-- `test_output/01_seg/{stem}_masks.npz` — `masks` (구조물 마스크), `ground_mask`, `vehicle_mask`, `road_mask`, `sidewalk_mask`
-- `test_output/01_seg/{stem}_meta.json` — 클래스별 면적 등 메타데이터
-- `test_output/01_seg/{stem}_seg_vis.jpg` — 세그멘테이션 시각화
+- `output/01_seg/{stem}_{dir}_masks.npz` — `masks` (구조물 마스크), `ground_mask`, `vehicle_mask`, `road_mask`, `sidewalk_mask` (방향별 개별 저장)
+- `output/01_seg/{stem}_{dir}_meta.json` — 클래스별 면적 등 메타데이터 (방향별 개별 저장)
+- `output/01_seg/{stem}_{dir}_seg_vis.jpg` — 방향별 세그멘테이션 시각화
+- `output/01_seg_merged/{stem}.jpg` — **[웹 업로드용]** 같은 파노라마의 left/front/right/back 시각화 4장을 yaw 순서(-90/0/90/180)대로 가로로 이어붙인 이미지. Google Drive 업로드 파일 개수를 줄이고 웹에서 파노라마와 정렬하기 쉽도록 별도 생성. 방향별 `_masks.npz`/`_meta.json`은 03 BEV가 그대로 쓰므로 삭제하지 않고 유지.
 
 ### 방법
 
@@ -67,7 +68,7 @@
 - 데이터셋: ADE20K (150클래스)
 - 성능: mIoU ~56 (SegFormer-b5 mIoU ~51.8 대비 향상)
 - 장점: 기둥·가장자리 등 미세 구조 분리 정확도 우수
-- 하드웨어: NVIDIA RTX 3070 Ti GPU (CUDA), batch 1 추론 (~11.7 it/s)
+- 하드웨어: NVIDIA RTX 3070 Ti GPU (CUDA), batch 1 추론 (~12.4 it/s)
 
 #### 2. 클래스 분류
 
@@ -90,6 +91,7 @@ BEV 시각화에서 차도 코리도로 별도 표시
 4. 라벨맵에서 각 클래스 그룹별 마스크 생성
 5. 200px 미만 소규모 영역은 노이즈로 무시
 6. `.npz` 형식으로 압축 저장 (VRAM 절약을 위해 추론 직후 GPU 텐서 해제)
+7. **[웹 업로드용 합치기]** 같은 파노라마(stem)의 left/front/right/back 4장이 모두 존재하면 `cv2.hconcat`으로 가로로 이어붙여 `01_seg_merged/{stem}.jpg`로 저장. 4방향 중 일부만 처리된 파노라마는 건너뛰고 다음 실행에서 재시도(이어서 실행 지원).
 
 ---
 
@@ -99,12 +101,13 @@ BEV 시각화에서 차도 코리도로 별도 표시
 각 방향 크롭에서 픽셀별 깊이(`depth_norm`)를 추정하여 저장한다. 깊이는 Step 3 BEV에서 구조물 occluder 거리 보정에 활용된다.
 
 ### 입력
-- `test_output/00_front/*_{left,front,right,back}.jpg` — Step 0 4방향 크롭 (2,292장)
+- `output/00_front/*_{left,front,right,back}.jpg` — Step 0 4방향 크롭 (145,468장)
 
 ### 출력
-- `test_output/02_depth/{stem}_depth.npz` — `depth_norm` (0=가깝다, 1=멀다)
-- `test_output/02_depth/{stem}_depth_vis.jpg` — plasma colormap 시각화
-- `test_output/02_depth/{stem}_depth_meta.json` — 이미지 크기, 스케일 정보
+- `output/02_depth/{stem}_{dir}_depth.npz` — `depth_norm` (0=가깝다, 1=멀다), 방향별 개별 저장
+- `output/02_depth/{stem}_{dir}_depth_vis.jpg` — plasma colormap 시각화, 방향별 개별 저장
+- `output/02_depth/{stem}_{dir}_depth_meta.json` — 이미지 크기, 스케일 정보
+- `output/02_depth_merged/{stem}.jpg` — **[웹 업로드용]** 01_seg_merged와 동일한 방식으로 4방향 depth 시각화를 가로로 이어붙인 이미지. `_depth.npz`/`_depth_meta.json`은 03 BEV가 그대로 쓰므로 유지.
 
 ### 방법
 
@@ -112,7 +115,6 @@ BEV 시각화에서 차도 코리도로 별도 표시
 - 모델: `depth-anything/Depth-Anything-V2-Large-hf`
 - 파라미터: 335M
 - VRAM: ~5GB
-- 속도: ~6.45 it/s (RTX 3070 Ti)
 - HuggingFace `pipeline(task="depth-estimation")` 사용
 
 #### 2. 깊이 규약
@@ -125,12 +127,14 @@ depth_norm = 1.0 - disp_norm             # 0=near, 1=far
 
 - `DEPTH_SCALE = 50.0` m: 근사 최대 가시거리 (절대 스케일 없는 단안 추정이므로 참고값)
 - 절대 거리 변환: `depth_m ≈ depth_norm × DEPTH_SCALE` (근사)
+- **주의**: 각 방향의 depth_norm은 이미지별로 독립적으로 min-max 정규화되므로, 4방향을 합쳐 하나의 이미지로 재추론하면 정규화 기준이 뒤섞여 결과가 왜곡된다. 그래서 깊이 추정 자체는 반드시 방향별로 독립 수행하고, 합치기는 시각화 jpg에만 적용한다.
 
 #### 3. 처리 순서
 1. 이미지를 PIL RGB로 변환 후 pipeline 추론
 2. disparity를 depth_norm으로 변환 (뒤집기)
 3. plasma colormap으로 시각화 이미지 저장
 4. `.npz`로 압축 저장
+5. **[웹 업로드용 합치기]** 01_segmentation과 동일한 방식으로 4방향 depth 시각화를 파노라마 단위로 합쳐 `02_depth_merged/{stem}.jpg`로 저장.
 
 ---
 
@@ -140,13 +144,13 @@ depth_norm = 1.0 - disp_norm             # 0=near, 1=far
 Step 0~2의 결과(크롭 이미지, 카메라 파라미터, 구조물/지면/차량 마스크, 깊이)를 통합하여 파노라마 1장당 360° Bird's Eye View 격자를 생성하고, 레이캐스팅으로 음영(blind zone)을 계측 및 시각화한다.
 
 ### 입력
-- `test_output/00_front/{pano}_{dir}_cam.json` 및 `{pano}_{dir}.jpg`
-- `test_output/01_seg/{stem}_masks.npz`
-- `test_output/02_depth/{stem}_depth.npz`
+- `output/00_front/{pano}_{dir}_cam.json` 및 `{pano}_{dir}.jpg`
+- `output/01_seg/{pano}_{dir}_masks.npz`
+- `output/02_depth/{pano}_{dir}_depth.npz`
 
 ### 출력
-- `test_output/03_bev/{pano}_bev360.jpg` — 2×4 시각화 패널
-- `test_output/03_bev/{pano}_dsi.json` — L_vis, A_shadow, DSI 등 계측값
+- `output/03_bev/{pano}_bev360.jpg` — 3×1 세로 시각화 패널 (occupancy / shadow-buildings / shadow-+side-vehicles)
+- `output/03_bev/{pano}_dsi.json` — L_vis, A_shadow, DSI 등 계측값
 
 ### BEV 격자 파라미터
 | 파라미터 | 값 |
@@ -248,40 +252,26 @@ row = CENTER_row + (−Z × cos(yaw) + X × sin(yaw)) / GRID_RES
 1. **건물만** (구조물 occluder만 사용)
 2. **건물 + 측면 차량** (구조물 + 측면 차량 occluder 포함)
 
-#### 7. Method A: Emergence(유입) 위험 탐지
+#### 7. 시각화 (3×1 세로 패널)
 
-인접 레이의 hit 거리 불연속을 탐지하여 occluder 가장자리(골목 입구, 차량 사이 틈 등)에서 보행자/차량이 갑자기 출현하는 위험 지점을 추출한다.
-
-**원리:**
-- 연속 벽면: 인접 레이 hit 거리가 매끄러움 → 탐지 안 됨
-- 골목 입구·틈: hit 거리가 급격히 변함 → 가장자리로 판정
-
-**파라미터:**
-- `HAZ_GAP_THRESH = 3.0 m`: 인접 레이 거리 차 기준
-- `HAZ_R = 40.0 m`: 위험 가중치 기준 거리 (이 안쪽일수록 위험↑)
-- 가장자리 위험 가중치: `w = max(0, 1 − d_edge / HAZ_R)`
-- `H_leak = Σ w`: 전체 emergence 위험 누적값
-
-#### 8. 시각화 (2×4 패널)
+웹에서 파노라마(가로로 긴 4방향 크롭을 세로로 나열)와 나란히 배치하기 쉽도록, BEV 결과도 세로로 긴 이미지 하나로 저장한다.
 
 | 위치 | 내용 |
 |---|---|
-| Row 1 (4열) | 좌·정면·우·후 세그멘테이션 썸네일 (256×256) |
-| Row 2, Col 1 | 360° BEV occupancy 격자 |
-| Row 2, Col 2 | 360° Shadow (건물만) + 레이 화살표 + L_vis/A_shadow/DSI |
-| Row 2, Col 3 | 360° Shadow (+측면 차량) + 동일 지표 |
-| Row 2, Col 4 | Hazard: emergence 가장자리 (마젠타 점, 크기=위험도) |
+| Row 1 | 360° BEV occupancy 격자 |
+| Row 2 | 360° Shadow (건물만) + 레이 화살표 + L_vis/A_shadow/DSI |
+| Row 3 | 360° Shadow (+측면 차량) + 동일 지표 |
 
 ---
 
 ## 처리 결과 요약
 
-| 단계 | 입력 | 출력 | 처리 시간 |
-|---|---|---|---|
-| Step 0 | 573장 파노라마 | 2,292장 크롭 | ~3초 |
-| Step 1 | 2,292장 크롭 | 2,292장 마스크 | ~3분 15초 (~11.7 it/s) |
-| Step 2 | 2,292장 크롭 | 2,292장 깊이맵 | ~5분 55초 (~6.45 it/s) |
-| Step 3 | 573개 파노라마 단위 | 573장 BEV + DSI JSON | - |
+| 단계 | 입력 | 출력 |
+|---|---|---|
+| Step 0 | 36,367장 파노라마 | 145,468장 크롭 (36,367 × 4방향) |
+| Step 1 | 145,468장 크롭 | 145,468장 마스크(방향별) + 36,367장 합친 시각화(`01_seg_merged`) |
+| Step 2 | 145,468장 크롭 | 145,468장 깊이맵(방향별) + 36,367장 합친 시각화(`02_depth_merged`) |
+| Step 3 | 36,367개 파노라마 단위 | 36,367장 BEV(3×1 세로) + DSI JSON |
 
 ---
 
@@ -295,4 +285,6 @@ row = CENTER_row + (−Z × cos(yaw) + X × sin(yaw)) / GRID_RES
 
 4. **360° 병합**: 단일 정면뷰 대신 4방향을 카메라 중심 격자에 병합함으로써 후방·측방 시야 차단까지 종합 계측. DSI의 A_total도 이에 맞춰 원판 면적(π×60²)으로 변경.
 
-5. **Emergence 탐지 (Method A)**: DSI 외에, 차단 구조물 가장자리의 갑작스러운 유입 위험을 별도 지표(H_leak)로 계측하여 교통사고 시나리오 분석에 활용.
+5. **GPU 추론은 방향별 독립 유지, 시각화만 병합**: Google Drive 업로드 파일 개수를 줄이고 웹에서 파노라마와 정렬하기 쉽도록, Step 1/2의 세그멘테이션·시각화 jpg는 파노라마 단위로 4방향을 가로로 이어붙여 별도 저장한다(`01_seg_merged`, `02_depth_merged`). 단, 세그멘테이션 추론과 깊이 추정 자체는 반드시 방향별로 독립 수행한다 — 특히 깊이는 방향별 disparity가 독립적으로 min-max 정규화되므로, 4방향을 하나로 합쳐 재추론하면 정규화 기준이 뒤섞여 결과가 왜곡된다. `.npz`/`.json`(마스크, 깊이, 카메라 K)은 Step 3이 방향별로 그대로 사용하므로 병합하지 않고 유지한다.
+
+6. **Step 3 시각화 3×1 세로 레이아웃**: 웹에서 파노라마(가로로 긴 4방향을 세로로 나열해 표시)와 BEV 결과(세로로 긴 이미지)를 나란히 배치하기 위해, 기존 2×4 패널(세그멘테이션 썸네일 + occupancy/shadow×2/hazard)에서 세그멘테이션 썸네일 행과 hazard 패널을 제거하고 occupancy·shadow(건물만)·shadow(+측면차량) 3개 패널만 세로로 쌓아 저장한다. Method A(Emergence/H_leak) 관련 계산·시각화 코드는 이 과정에서 전부 제거했다.
