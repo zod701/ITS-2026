@@ -321,6 +321,17 @@ export default function GithubMarkdownButton({
         .markdown-content :global(a) {
           color: var(--link-color);
         }
+
+        /* 모바일: 모달이 화면을 더 채우게 하고, 문서 미리보기 높이도 dvh 기준으로. */
+        @media (max-width: 768px) {
+          .md-modal {
+            width: 94vw;
+            max-height: 88dvh;
+          }
+          .md-modal-preview {
+            height: 88dvh;
+          }
+        }
       `}</style>
     </>
   );

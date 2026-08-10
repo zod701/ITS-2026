@@ -99,7 +99,7 @@ function HomeInner() {
   );
 
   return (
-    <main style={{ position: "relative", height: "100vh", width: "100vw" }}>
+    <main className="app-main">
       <MapView
         onSelect={selectPoint}
         visibleGrades={visibleGrades}

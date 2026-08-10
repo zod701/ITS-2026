@@ -467,6 +467,48 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           width: 150%; /* 6/4 = 1.5배로 확대해 4칸 폭이 컨테이너 전체를 채우게 함 */
           height: 100%;
         }
+
+        /* 모바일: 데스크탑의 가로 배치(메타 | 사진들 | BEV)는 폭이 부족하므로 전부
+           세로로 쌓고, 고정 px 폭(330/520/250)을 화면 폭 기준으로 바꾼다.
+           데스크탑 규칙은 이 블록 밖에 그대로 두어 전혀 영향받지 않는다. */
+        @media (max-width: 768px) {
+          .detail-panel {
+            height: 85dvh;
+          }
+          .detail-panel-body {
+            flex-direction: column;
+            padding: 12px;
+            gap: 12px;
+          }
+          .detail-panel-meta-col {
+            width: auto;
+            padding: 12px;
+          }
+          .detail-panel-images-row {
+            flex-direction: column;
+            align-self: stretch;
+            gap: 12px;
+          }
+          .detail-panel-images-col {
+            min-width: 0;
+            max-width: none;
+            gap: 12px;
+          }
+          .bev-occupancy-crop {
+            width: 100%;
+          }
+          /* 두 shadow 패널은 세로로 쌓으면 너무 길어지므로 가로로 반씩 나눈다. */
+          .bev-shadow-col {
+            flex-direction: row;
+            width: 100%;
+            gap: 12px;
+          }
+          .bev-shadow-crop {
+            width: auto;
+            flex: 1 1 0;
+            min-width: 0;
+          }
+        }
       `}</style>
     </aside>
   );

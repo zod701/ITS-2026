@@ -205,6 +205,25 @@ export default function SearchBox({ points, onSelectPoint, onHighlight, style }:
         .search-result-address {
           word-break: break-all;
         }
+
+        /* 모바일: 고정 280px 대신 화면 폭에 맞춘다. 위치(left/top)는 page.tsx의 인라인
+           스타일이라 !important로만 덮어쓸 수 있다(데스크탑에는 적용되지 않음).
+           우측은 테마 토글 FAB(right 24 + 48px) 자리를 비워 둔다. */
+        @media (max-width: 768px) {
+          .search-box {
+            left: 8px !important;
+            top: 8px !important;
+            right: 80px;
+            width: auto;
+          }
+          /* iOS Safari는 폰트가 16px 미만인 입력에 포커스하면 화면을 확대해버린다. */
+          input {
+            font-size: 16px;
+          }
+          .search-results {
+            max-height: 50dvh;
+          }
+        }
       `}</style>
     </div>
   );

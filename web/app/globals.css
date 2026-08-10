@@ -82,3 +82,23 @@ a {
 main {
   height: 100%;
 }
+
+/* 지도 전체 화면 컨테이너. 데스크탑 값은 기존 인라인 스타일과 동일하고,
+   모바일에서만 dvh를 써서 주소창이 접힐 때 하단(상세 패널)이 잘리지 않게 한다. */
+.app-main {
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+}
+
+@media (max-width: 768px) {
+  .app-main {
+    height: 100dvh;
+  }
+
+  /* 모바일 상단은 검색창·범례가 쓰므로 Leaflet 줌 컨트롤을 좌측 하단으로 옮긴다. */
+  .leaflet-top.leaflet-left {
+    top: auto;
+    bottom: 0;
+  }
+}

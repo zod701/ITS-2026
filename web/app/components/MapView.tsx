@@ -122,6 +122,11 @@ export default function MapView({
   const mapRef = useRef<L.Map | null>(null);
   const pointsRef = useRef<PointFeature[]>([]);
   const highlightLayerRef = useRef<L.LayerGroup | null>(null);
+  // 도로(DSI)와 버스 노선은 각자 독립적인 fetch로 비동기 추가되므로, 어느 쪽이 먼저
+  // 도착하느냐에 따라 SVG z-order(추가 순서)가 매번 달라질 수 있다. 버스 노선 레이어를
+  // 항상 여기 저장해두고, 도로 레이어가 (나중에) 추가된 직후 다시 앞으로 가져와 항상
+  // 버스 노선이 DSI 선 위에 보이도록 강제한다.
+  const busRouteLayersRef = useRef<L.GeoJSON[]>([]);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -277,6 +282,9 @@ export default function MapView({
         },
       });
       roadsLayer.addTo(map);
+      // 도로가 버스 노선보다 나중에 추가돼 위로 올라갈 수 있으니, 이미 그려진 버스
+      // 노선이 있으면 다시 맨 앞으로 가져온다.
+      busRouteLayersRef.current.forEach((layer) => layer.bringToFront());
 
       // grade 체크박스(범례)로 토글될 때 해당 등급 도로만 지도에 남기고 나머지는 제거.
       applyFilterRef.current = () => {
@@ -315,6 +323,9 @@ export default function MapView({
           }),
           interactive: false,
         }).addTo(map);
+        busRouteLayersRef.current = [casingLayer, busRoutesLayer];
+        casingLayer.bringToFront();
+        busRoutesLayer.bringToFront();
 
         // 노선 체크박스(범례)로 토글될 때 해당 노선(케이싱+컬러 라인 둘 다)만 지도에 남기고 나머지는 제거.
         applyRouteFilterRef.current = () => {
@@ -335,6 +346,7 @@ export default function MapView({
       observer.disconnect();
       map.remove();
       mapRef.current = null;
+      busRouteLayersRef.current = [];
     };
   }, []);
 
