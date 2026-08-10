@@ -138,7 +138,7 @@ depth_norm = 1.0 - disp_norm             # 0=near, 1=far
 
 ---
 
-## Step 3: BEV 투영 및 음영 계측 (`03_bev_shadow.ipynb`)
+## Step 3: BEV 투영 및 음영 계측 (`03_bev_shadow.ipynb` / `03_bev_shadow_gpu.ipynb`)
 
 ### 목표
 Step 0~2의 결과(크롭 이미지, 카메라 파라미터, 구조물/지면/차량 마스크, 깊이)를 통합하여 파노라마 1장당 360° Bird's Eye View 격자를 생성하고, 레이캐스팅으로 음영(blind zone)을 계측 및 시각화한다.
@@ -151,6 +151,13 @@ Step 0~2의 결과(크롭 이미지, 카메라 파라미터, 구조물/지면/�
 ### 출력
 - `output/03_bev/{pano}_bev360.jpg` — 3×1 세로 시각화 패널 (occupancy / shadow-buildings / shadow-+side-vehicles)
 - `output/03_bev/{pano}_dsi.json` — L_vis, A_shadow, DSI 등 계측값
+
+### 두 노트북 버전
+`03_bev_shadow.ipynb`(CPU/float64)와 `03_bev_shadow_gpu.ipynb`(GPU 가속판, 별도 출력 폴더 `output/03_bev_gpu`) 두 벌이 존재한다. 계산식·로직은 동일하며, GPU판은 순수 성능 최적화만 다르다:
+- 레이캐스팅(§6)과 IPM 지면접점 투영(§1)을 PyTorch/CUDA 텐서 연산으로 벡터화 (float32)
+- 3×1 시각화 렌더링(§7)을 `ProcessPoolExecutor`로 다중 프로세스 병렬 처리
+
+float32 벡터화로 인한 결과값 오차는 실측 검증(200개 지점) 결과 DSI 등급(Safe/Caution/High-risk) 불일치 0건 수준으로 무시 가능하다. **실제 웹(`web/public/data/dsi_map.json`, `bev_map.json`)에 배포된 36,367개 전체 결과는 GPU판의 산출물**이다.
 
 ### BEV 격자 파라미터
 | 파라미터 | 값 |
@@ -271,7 +278,7 @@ row = CENTER_row + (−Z × cos(yaw) + X × sin(yaw)) / GRID_RES
 | Step 0 | 36,367장 파노라마 | 145,468장 크롭 (36,367 × 4방향) |
 | Step 1 | 145,468장 크롭 | 145,468장 마스크(방향별) + 36,367장 합친 시각화(`01_seg_merged`) |
 | Step 2 | 145,468장 크롭 | 145,468장 깊이맵(방향별) + 36,367장 합친 시각화(`02_depth_merged`) |
-| Step 3 | 36,367개 파노라마 단위 | 36,367장 BEV(3×1 세로) + DSI JSON |
+| Step 3 | 36,367개 파노라마 단위 | 36,367장 BEV(3×1 세로) + DSI JSON (`03_bev_shadow_gpu.ipynb`로 전체 완료, 웹에 배포된 데이터의 출처) |
 
 ---
 
@@ -287,4 +294,4 @@ row = CENTER_row + (−Z × cos(yaw) + X × sin(yaw)) / GRID_RES
 
 5. **GPU 추론은 방향별 독립 유지, 시각화만 병합**: Google Drive 업로드 파일 개수를 줄이고 웹에서 파노라마와 정렬하기 쉽도록, Step 1/2의 세그멘테이션·시각화 jpg는 파노라마 단위로 4방향을 가로로 이어붙여 별도 저장한다(`01_seg_merged`, `02_depth_merged`). 단, 세그멘테이션 추론과 깊이 추정 자체는 반드시 방향별로 독립 수행한다 — 특히 깊이는 방향별 disparity가 독립적으로 min-max 정규화되므로, 4방향을 하나로 합쳐 재추론하면 정규화 기준이 뒤섞여 결과가 왜곡된다. `.npz`/`.json`(마스크, 깊이, 카메라 K)은 Step 3이 방향별로 그대로 사용하므로 병합하지 않고 유지한다.
 
-6. **Step 3 시각화 3×1 세로 레이아웃**: 웹에서 파노라마(가로로 긴 4방향을 세로로 나열해 표시)와 BEV 결과(세로로 긴 이미지)를 나란히 배치하기 위해, 기존 2×4 패널(세그멘테이션 썸네일 + occupancy/shadow×2/hazard)에서 세그멘테이션 썸네일 행과 hazard 패널을 제거하고 occupancy·shadow(건물만)·shadow(+측면차량) 3개 패널만 세로로 쌓아 저장한다. Method A(Emergence/H_leak) 관련 계산·시각화 코드는 이 과정에서 전부 제거했다.
+6. **Step 3 GPU 가속 (`03_bev_shadow_gpu.ipynb`)**: 전체 36,367개 처리 시간을 줄이기 위해 CPU판을 복제해 성능만 최적화한 버전을 별도로 운영한다. 레이캐스팅(720레이 × 171스텝)과 IPM 지면접점 투영을 PyTorch/CUDA 텐서 연산으로 벡터화하고(float32), matplotlib 3×1 렌더링·저장을 `ProcessPoolExecutor`로 다중 프로세스 병렬화했다. float32 벡터화로 인한 셀 단위 미세 오차는 200개 실지점 검증에서 DSI 등급 불일치 0건으로 확인해 채택했다.
