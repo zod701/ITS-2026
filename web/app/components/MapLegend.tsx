@@ -71,43 +71,47 @@ export default function MapLegend({
     <div className="map-legend" style={style}>
       <div className="legend-section">
         <div className="legend-heading">도로 위험도 (DSI)</div>
-        {gradeKeys.map((key) => (
-          <button
-            key={key}
-            className={`legend-item ${visibleGrades[key] ? "" : "legend-item-off"}`}
-            onClick={() => onToggleGrade(key)}
-            aria-pressed={visibleGrades[key]}
-          >
-            <span
-              className="legend-swatch"
-              style={{ background: key === NO_DATA_KEY ? NO_DATA_COLOR : GRADE_COLORS[key] }}
-            />
-            {GRADE_LABELS[key]}
-          </button>
-        ))}
+        <div className="legend-row">
+          {gradeKeys.map((key) => (
+            <button
+              key={key}
+              className={`legend-item ${visibleGrades[key] ? "" : "legend-item-off"}`}
+              onClick={() => onToggleGrade(key)}
+              aria-pressed={visibleGrades[key]}
+            >
+              <span
+                className="legend-swatch"
+                style={{ background: key === NO_DATA_KEY ? NO_DATA_COLOR : GRADE_COLORS[key] }}
+              />
+              {GRADE_LABELS[key]}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="legend-divider" />
 
       <div className="legend-section">
         <div className="legend-heading">버스 노선</div>
-        {BUS_ROUTES.map((route) => (
-          <button
-            key={route}
-            className={`legend-item ${visibleRoutes[route] ? "" : "legend-item-off"}`}
-            onClick={() => onToggleRoute(route)}
-            aria-pressed={visibleRoutes[route]}
-          >
-            <span
-              className="legend-swatch legend-swatch-line"
-              style={{ background: BUS_ROUTE_COLORS[route] }}
-            />
-            {BUS_ROUTE_LABELS[route]}
-            {routeDsi[route] && (
-              <span className="legend-dsi">평균 DSI {routeDsi[route]!.dsi.toFixed(2)}</span>
-            )}
-          </button>
-        ))}
+        <div className="legend-row">
+          {BUS_ROUTES.map((route) => (
+            <button
+              key={route}
+              className={`legend-item ${visibleRoutes[route] ? "" : "legend-item-off"}`}
+              onClick={() => onToggleRoute(route)}
+              aria-pressed={visibleRoutes[route]}
+            >
+              <span
+                className="legend-swatch legend-swatch-line"
+                style={{ background: BUS_ROUTE_COLORS[route] }}
+              />
+              {BUS_ROUTE_LABELS[route]}
+              {routeDsi[route] && (
+                <span className="legend-dsi">평균 DSI {routeDsi[route]!.dsi.toFixed(2)}</span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="legend-divider" />
@@ -123,21 +127,23 @@ export default function MapLegend({
         .map-legend {
           position: absolute;
           z-index: 1000;
-          min-width: 200px;
           background: var(--panel-bg);
           color: var(--foreground);
           border-radius: 8px;
-          padding: 10px 12px;
+          padding: 10px 16px;
           display: flex;
-          flex-direction: column;
-          gap: 8px;
+          flex-direction: row;
+          align-items: center;
+          gap: 16px;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
           font-size: 13px;
+          flex-wrap: wrap;
         }
         .legend-section {
           display: flex;
-          flex-direction: column;
-          gap: 6px;
+          flex-direction: row;
+          align-items: center;
+          gap: 10px;
         }
         .legend-heading {
           font-size: 11px;
@@ -145,17 +151,24 @@ export default function MapLegend({
           letter-spacing: 0.03em;
           color: var(--text-muted);
           text-transform: uppercase;
+          white-space: nowrap;
         }
         .legend-divider {
-          height: 1px;
+          width: 1px;
+          align-self: stretch;
           background: var(--border-color);
-          margin: 2px 0;
+        }
+        .legend-row {
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+          gap: 14px;
+          flex-wrap: wrap;
         }
         .legend-item {
           display: flex;
           align-items: center;
-          gap: 8px;
-          width: 100%;
+          gap: 6px;
           border: none;
           background: none;
           color: inherit;
@@ -163,15 +176,14 @@ export default function MapLegend({
           font-family: inherit;
           cursor: pointer;
           padding: 2px 0;
-          text-align: left;
+          white-space: nowrap;
           opacity: 1;
         }
         .legend-item-off {
           opacity: 0.4;
         }
         .legend-dsi {
-          margin-left: auto;
-          padding-left: 10px;
+          padding-left: 4px;
           font-size: 11px;
           color: var(--text-muted);
           white-space: nowrap;
@@ -179,6 +191,7 @@ export default function MapLegend({
         .legend-summary {
           font-size: 12px;
           color: var(--text-muted);
+          white-space: nowrap;
         }
         .legend-swatch {
           width: 14px;

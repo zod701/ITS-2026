@@ -45,7 +45,7 @@ export default function Home() {
         onToggleGrade={toggleGrade}
         visibleRoutes={visibleRoutes}
         onToggleRoute={toggleRoute}
-        style={{ left: 12, top: 90 }}
+        style={{ left: 60, right: 84, top: 12, justifyContent: "center" }}
       />
       <ThemeToggle style={{ right: 24, top: 24 }} />
       <GithubMarkdownButton

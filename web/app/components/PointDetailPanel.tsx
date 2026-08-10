@@ -14,6 +14,9 @@ export default function PointDetailPanel({ point, onClose }: Props) {
   const [depthMap, setDepthMap] = useState<Record<string, string> | null>(null);
   const [bevMap, setBevMap] = useState<Record<string, string> | null>(null);
   const [addressMap, setAddressMap] = useState<Record<string, string> | null>(null);
+  const [dsiMap, setDsiMap] = useState<Record<string, { dsi: number; grade: string }> | null>(
+    null
+  );
 
   useEffect(() => {
     fetch("/data/image_map.json")
@@ -44,6 +47,13 @@ export default function PointDetailPanel({ point, onClose }: Props) {
   }, []);
 
   useEffect(() => {
+    fetch("/data/dsi_map.json")
+      .then((res) => res.json())
+      .then(setDsiMap)
+      .catch(() => setDsiMap({}));
+  }, []);
+
+  useEffect(() => {
     fetch("/data/address_map.json")
       .then((res) => res.json())
       .then(setAddressMap)
@@ -68,6 +78,13 @@ export default function PointDetailPanel({ point, onClose }: Props) {
     ? `https://drive.google.com/thumbnail?id=${bevFileId}&sz=w1600`
     : null;
   const address = addressMap?.[point.panoId];
+  const dsiRecord = dsiMap?.[key];
+
+  const GRADE_COLORS: Record<string, string> = {
+    Safe: "#22c55e",
+    Caution: "#eab308",
+    "High-risk": "#ef4444",
+  };
 
   return (
     <aside className="detail-panel">
@@ -78,6 +95,26 @@ export default function PointDetailPanel({ point, onClose }: Props) {
         <div className="detail-panel-meta-col">
           <h2>지점 #{point.pointId}</h2>
           <dl className="detail-panel-meta">
+            <div className="meta-item">
+              <dt>DSI</dt>
+              <dd>
+                {dsiRecord ? (
+                  <>
+                    {dsiRecord.dsi.toFixed(2)}{" "}
+                    <span
+                      className="dsi-grade-badge"
+                      style={{ background: GRADE_COLORS[dsiRecord.grade] ?? "#9ca3af" }}
+                    >
+                      {dsiRecord.grade}
+                    </span>
+                  </>
+                ) : dsiMap === null ? (
+                  "불러오는 중…"
+                ) : (
+                  "-"
+                )}
+              </dd>
+            </div>
             <div className="meta-item">
               <dt>Pano ID</dt>
               <dd>{point.panoId}</dd>
@@ -212,6 +249,14 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           display: flex;
           flex-direction: column;
           gap: 2px;
+        }
+        .dsi-grade-badge {
+          display: inline-block;
+          padding: 1px 8px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #fff;
         }
         .detail-panel-body {
           padding: 16px;
