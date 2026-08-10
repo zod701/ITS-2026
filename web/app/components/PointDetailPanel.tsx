@@ -117,7 +117,17 @@ export default function PointDetailPanel({ point, onClose }: Props) {
             </div>
             <div className="meta-item">
               <dt>Pano ID</dt>
-              <dd>{point.panoId}</dd>
+              <dd>
+                {point.panoId}{" "}
+                <a
+                  href={`https://map.naver.com/p?p=${point.panoId},0,0,80,Float`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="naver-map-link"
+                >
+                  네이버 지도에서 보기 ↗
+                </a>
+              </dd>
             </div>
             <div className="meta-item">
               <dt>위치</dt>
@@ -257,6 +267,15 @@ export default function PointDetailPanel({ point, onClose }: Props) {
           font-size: 12px;
           font-weight: 600;
           color: #fff;
+        }
+        .naver-map-link {
+          display: inline-block;
+          color: var(--link-color);
+          font-size: 12px;
+          white-space: nowrap;
+        }
+        .naver-map-link:hover {
+          text-decoration: underline;
         }
         .detail-panel-body {
           padding: 16px;

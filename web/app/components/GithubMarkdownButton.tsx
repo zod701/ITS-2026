@@ -20,14 +20,24 @@ interface Props {
   title: string;
   icon: "github" | "doc";
   style?: React.CSSProperties;
+  /** Google Drive file ID for an associated document (e.g. a PDF), shown via a
+   * doc icon next to the modal title that opens an inline preview. */
+  driveFileId?: string;
 }
 
-export default function GithubMarkdownButton({ filenames, title, icon, style }: Props) {
+export default function GithubMarkdownButton({
+  filenames,
+  title,
+  icon,
+  style,
+  driveFileId,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [contentError, setContentError] = useState(false);
   const [commit, setCommit] = useState<CommitInfo | null>(null);
   const [commitError, setCommitError] = useState(false);
+  const [showDrivePreview, setShowDrivePreview] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -82,42 +92,70 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
 
       {open && (
         <div className="md-modal-backdrop" onClick={() => setOpen(false)}>
-          <div className="md-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`md-modal ${showDrivePreview && driveFileId ? "md-modal-preview" : ""}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="md-modal-header">
-              <h2>{title}</h2>
+              <div className="md-modal-title">
+                <h2>{title}</h2>
+                {driveFileId && (
+                  <button
+                    className="doc-icon-button"
+                    onClick={() => setShowDrivePreview((v) => !v)}
+                    aria-label="원본 문서 열람"
+                    title="원본 문서 열람"
+                    aria-pressed={showDrivePreview}
+                  >
+                    <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true">
+                      <path d="M9.5 0H3a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V4.5L9.5 0Zm.25 1.5L12.75 5H10a.25.25 0 0 1-.25-.25V1.5ZM4 7h8v1H4V7Zm0 2.5h8v1H4v-1ZM4 12h5v1H4v-1Z" />
+                    </svg>
+                  </button>
+                )}
+              </div>
               <button onClick={() => setOpen(false)} aria-label="닫기">
                 ✕
               </button>
             </div>
 
-            <div className="md-modal-body">
-              <a href={REPO_URL} target="_blank" rel="noopener noreferrer" className="repo-link">
-                See GitHub Repository
-              </a>
-
-              <div className="commit-info">
-                {commitError && <span>커밋 정보를 불러오지 못했습니다.</span>}
-                {!commitError && !commit && <span>커밋 정보를 불러오는 중…</span>}
-                {commit && (
-                  <>
-                    <span>
-                      {commit.message} (<code>{commit.sha.slice(0, 7)}</code>)
-                    </span>
-                    <span>Last commit: {new Date(commit.date).toLocaleString("ko-KR")}</span>
-                  </>
-                )}
+            {showDrivePreview && driveFileId ? (
+              <div className="drive-preview-body">
+                <iframe
+                  src={`https://drive.google.com/file/d/${driveFileId}/preview`}
+                  title={`${title} 원본 문서`}
+                  allow="autoplay"
+                />
               </div>
+            ) : (
+              <div className="md-modal-body">
+                <a href={REPO_URL} target="_blank" rel="noopener noreferrer" className="repo-link">
+                  See GitHub Repository
+                </a>
 
-              <hr />
+                <div className="commit-info">
+                  {commitError && <span>커밋 정보를 불러오지 못했습니다.</span>}
+                  {!commitError && !commit && <span>커밋 정보를 불러오는 중…</span>}
+                  {commit && (
+                    <>
+                      <span>
+                        {commit.message} (<code>{commit.sha.slice(0, 7)}</code>)
+                      </span>
+                      <span>Last commit: {new Date(commit.date).toLocaleString("ko-KR")}</span>
+                    </>
+                  )}
+                </div>
 
-              <div className="markdown-content">
-                {contentError && <p>{filenames[0]}를 불러오지 못했습니다.</p>}
-                {!contentError && content === null && <p>{filenames[0]}를 불러오는 중…</p>}
-                {content !== null && (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-                )}
+                <hr />
+
+                <div className="markdown-content">
+                  {contentError && <p>{filenames[0]}를 불러오지 못했습니다.</p>}
+                  {!contentError && content === null && <p>{filenames[0]}를 불러오는 중…</p>}
+                  {content !== null && (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -162,12 +200,21 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
           overflow: hidden;
           font-family: var(--font-modal), sans-serif;
         }
+        .md-modal-preview {
+          height: 80vh;
+        }
         .md-modal-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
           padding: 16px;
           border-bottom: 1px solid var(--border-color);
+          flex-shrink: 0;
+        }
+        .md-modal-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
         .md-modal-header h2 {
           font-weight: 600;
@@ -181,9 +228,33 @@ export default function GithubMarkdownButton({ filenames, title, icon, style }: 
           cursor: pointer;
           padding: 4px 8px;
         }
+        .doc-icon-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4px !important;
+          border-radius: 4px;
+          color: var(--text-muted) !important;
+        }
+        .doc-icon-button[aria-pressed="true"] {
+          color: var(--link-color) !important;
+          background: var(--panel-meta-bg) !important;
+        }
+        .doc-icon-button:hover {
+          color: var(--link-color) !important;
+        }
         .md-modal-body {
           padding: 16px;
           overflow-y: auto;
+        }
+        .drive-preview-body {
+          flex: 1;
+          min-height: 0;
+        }
+        .drive-preview-body iframe {
+          width: 100%;
+          height: 100%;
+          border: none;
         }
         .repo-link {
           display: inline-block;

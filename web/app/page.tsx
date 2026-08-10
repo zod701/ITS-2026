@@ -59,6 +59,7 @@ export default function Home() {
         title="Method"
         icon="doc"
         style={{ right: 24, bottom: 24 }}
+        driveFileId="1XXhLcUI0WI3sdbK1w-CqfxTMpvYRtESt"
       />
     </main>
   );
