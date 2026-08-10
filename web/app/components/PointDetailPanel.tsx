@@ -17,6 +17,16 @@ export default function PointDetailPanel({ point, onClose }: Props) {
   const [dsiMap, setDsiMap] = useState<Record<string, { dsi: number; grade: string }> | null>(
     null
   );
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [panoIdCopied, setPanoIdCopied] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   useEffect(() => {
     fetch("/data/image_map.json")
@@ -86,6 +96,20 @@ export default function PointDetailPanel({ point, onClose }: Props) {
     "High-risk": "#ef4444",
   };
 
+  const handleCopyLink = async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("point", point.pointId);
+    await navigator.clipboard.writeText(url.toString());
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 1500);
+  };
+
+  const handleCopyPanoId = async () => {
+    await navigator.clipboard.writeText(point.panoId);
+    setPanoIdCopied(true);
+    setTimeout(() => setPanoIdCopied(false), 1500);
+  };
+
   return (
     <aside className="detail-panel">
       <button className="close-button" onClick={onClose} aria-label="닫기">
@@ -93,7 +117,12 @@ export default function PointDetailPanel({ point, onClose }: Props) {
       </button>
       <div className="detail-panel-body">
         <div className="detail-panel-meta-col">
-          <h2>지점 #{point.pointId}</h2>
+          <div className="meta-title-row">
+            <h2>지점 #{point.pointId}</h2>
+            <button className="copy-link-button" onClick={handleCopyLink} title="이 지점 링크 복사">
+              {linkCopied ? "복사됨 ✓" : "링크 복사"}
+            </button>
+          </div>
           <dl className="detail-panel-meta">
             <div className="meta-item">
               <dt>DSI</dt>
@@ -119,6 +148,13 @@ export default function PointDetailPanel({ point, onClose }: Props) {
               <dt>Pano ID</dt>
               <dd>
                 {point.panoId}{" "}
+                <button
+                  className="copy-inline-button"
+                  onClick={handleCopyPanoId}
+                  title="Pano ID 복사"
+                >
+                  {panoIdCopied ? "복사됨 ✓" : "복사"}
+                </button>{" "}
                 <a
                   href={`https://map.naver.com/p?p=${point.panoId},0,0,80,Float`}
                   target="_blank"
@@ -248,6 +284,41 @@ export default function PointDetailPanel({ point, onClose }: Props) {
         }
         .detail-panel-meta-col h2 {
           font-size: 18px;
+        }
+        .meta-title-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .copy-link-button {
+          border: 1px solid var(--border-color);
+          background: none;
+          color: var(--text-muted);
+          font-size: 11px;
+          padding: 3px 8px;
+          border-radius: 999px;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .copy-link-button:hover {
+          color: var(--link-color);
+          border-color: var(--link-color);
+        }
+        .copy-inline-button {
+          display: inline-block;
+          border: 1px solid var(--border-color);
+          background: none;
+          color: var(--text-muted);
+          font-size: 11px;
+          padding: 1px 7px;
+          border-radius: 999px;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .copy-inline-button:hover {
+          color: var(--link-color);
+          border-color: var(--link-color);
         }
         .detail-panel-meta {
           display: flex;

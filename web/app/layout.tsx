@@ -28,7 +28,7 @@ const themeInitScript = `
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ko" className={gowunBatang.variable}>
+    <html lang="ko" className={gowunBatang.variable} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

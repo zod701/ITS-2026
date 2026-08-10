@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import L from "leaflet";
-import type { SelectedPoint } from "../types";
+import type { PointFeature, SelectedPoint } from "../types";
 import {
   BUS_ROUTE_COLORS,
   GRADE_COLORS,
@@ -44,12 +44,6 @@ interface RoadsGeoJson {
   features: RoadFeature[];
 }
 
-interface PointFeature {
-  type: "Feature";
-  geometry: { type: "Point"; coordinates: [number, number] };
-  properties: { point_id: string; pano_id: string };
-}
-
 interface PointsGeoJson {
   type: "FeatureCollection";
   features: PointFeature[];
@@ -70,6 +64,10 @@ interface Props {
   onSelect: (point: SelectedPoint) => void;
   visibleGrades: Record<GradeFilterKey, boolean>;
   visibleRoutes: Record<BusRoute, boolean>;
+  /** 값이 바뀔 때마다 지도를 해당 지점으로 이동(flyTo)한다. */
+  flyToTarget: SelectedPoint | null;
+  /** 검색으로 찾은 후보 지점들을 지도 위에 강조 마커로 표시. */
+  highlightPointIds: string[];
 }
 
 function isDarkTheme(): boolean {
@@ -108,13 +106,22 @@ function gradeKeyFor(roadDsi: RoadDsiMap, edgeId: string): GradeFilterKey {
   return roadDsi[edgeId]?.grade ?? NO_DATA_KEY;
 }
 
-export default function MapView({ onSelect, visibleGrades, visibleRoutes }: Props) {
+export default function MapView({
+  onSelect,
+  visibleGrades,
+  visibleRoutes,
+  flyToTarget,
+  highlightPointIds,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onSelectRef = useRef(onSelect);
   const visibleGradesRef = useRef(visibleGrades);
   const applyFilterRef = useRef<() => void>(() => {});
   const visibleRoutesRef = useRef(visibleRoutes);
   const applyRouteFilterRef = useRef<() => void>(() => {});
+  const mapRef = useRef<L.Map | null>(null);
+  const pointsRef = useRef<PointFeature[]>([]);
+  const highlightLayerRef = useRef<L.LayerGroup | null>(null);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -130,10 +137,63 @@ export default function MapView({ onSelect, visibleGrades, visibleRoutes }: Prop
     applyRouteFilterRef.current();
   }, [visibleRoutes]);
 
+  // 검색 결과 지점으로 지도 이동 + 마커 임시 강조.
+  useEffect(() => {
+    if (!flyToTarget || !mapRef.current) return;
+    mapRef.current.flyTo([flyToTarget.lat, flyToTarget.lon], 18, { duration: 0.8 });
+    const marker = L.circleMarker([flyToTarget.lat, flyToTarget.lon], {
+      radius: 14,
+      color: "#facc15",
+      weight: 3,
+      fillOpacity: 0,
+    }).addTo(mapRef.current);
+    const timer = setTimeout(() => marker.remove(), 2000);
+    return () => {
+      clearTimeout(timer);
+      marker.remove();
+    };
+  }, [flyToTarget]);
+
+  // 주소 검색 후보지 하이라이트 마커.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    highlightLayerRef.current?.clearLayers();
+    if (highlightPointIds.length === 0) return;
+    const layer = highlightLayerRef.current ?? L.layerGroup().addTo(mapRef.current);
+    highlightLayerRef.current = layer;
+    const idSet = new Set(highlightPointIds);
+    for (const p of pointsRef.current) {
+      if (!idSet.has(p.properties.point_id)) continue;
+      const [lon, lat] = p.geometry.coordinates;
+      L.circleMarker([lat, lon], {
+        radius: 8,
+        color: "#facc15",
+        weight: 2,
+        fillColor: "#fde047",
+        fillOpacity: 0.9,
+      })
+        .bindTooltip(`지점 #${p.properties.point_id}`)
+        .on("click", () => {
+          onSelectRef.current({
+            pointId: p.properties.point_id,
+            panoId: p.properties.pano_id,
+            lat,
+            lon,
+          });
+        })
+        .addTo(layer);
+    }
+  }, [highlightPointIds]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
     const map = L.map(containerRef.current).fitBounds(GANGNEUNG_BOUNDS);
+    mapRef.current = map;
+    // 언마운트(map.remove()) 이후 늦게 도착하는 fetch 콜백이 이미 제거된 지도에
+    // 레이어를 추가하려다 던지는 크래시(Renderer.onAdd -> getPane() undefined)를 막는다.
+    // React StrictMode의 mount->unmount->mount 이중 실행이나 Fast Refresh로 재현된다.
+    let cancelled = false;
 
     // 다크모드일 때는 CARTO Dark Matter 타일(무료, OSM 데이터 기반)로 전환 —
     // 기본 OSM 타일은 항상 밝은 배경이라 다크모드에서도 그대로면 눈부심.
@@ -163,7 +223,9 @@ export default function MapView({ onSelect, visibleGrades, visibleRoutes }: Prop
     fetch("/data/points.geojson")
       .then((res) => res.json())
       .then((data: PointsGeoJson) => {
+        if (cancelled) return;
         points = data.features;
+        pointsRef.current = data.features;
       });
 
     const colorFor = (edgeId: string) => {
@@ -181,6 +243,7 @@ export default function MapView({ onSelect, visibleGrades, visibleRoutes }: Prop
         .then((res) => res.json())
         .catch(() => ({})),
     ]).then(([data, dsiData]: [RoadsGeoJson, RoadDsiMap]) => {
+      if (cancelled) return;
       roadDsi = dsiData;
       const roadsLayer = L.geoJSON(data as GeoJSON.GeoJsonObject, {
         style: (feature) => ({
@@ -231,15 +294,18 @@ export default function MapView({ onSelect, visibleGrades, visibleRoutes }: Prop
     fetch("/data/bus_routes.geojson")
       .then((res) => res.json())
       .then((busRoutes: BusRoutesGeoJson) => {
+        if (cancelled) return;
         // 도로 위험도(DSI) 선과 헷갈리지 않도록, 버스 노선은 어두운 케이싱(테두리)을 먼저
         // 깔고 그 위에 컬러 실선을 겹쳐 그린다 — 굵은 테두리가 있는 실선이라 얇은 DSI 라인과
-        // 형태 자체가 달라 구분된다.
+        // 형태 자체가 달라 구분된다. interactive: false로 클릭/hover를 무시시켜, 버스 노선이
+        // DSI 도로 위에 겹쳐 그려져도 그 아래 도로의 클릭 이벤트(패널 열기)를 가리지 않게 한다.
         const casingLayer = L.geoJSON(busRoutes as GeoJSON.GeoJsonObject, {
           style: () => ({
             color: "#111827",
             weight: 9,
             opacity: 0.55,
           }),
+          interactive: false,
         }).addTo(map);
         const busRoutesLayer = L.geoJSON(busRoutes as GeoJSON.GeoJsonObject, {
           style: (feature) => ({
@@ -247,6 +313,7 @@ export default function MapView({ onSelect, visibleGrades, visibleRoutes }: Prop
             weight: 5,
             opacity: 1,
           }),
+          interactive: false,
         }).addTo(map);
 
         // 노선 체크박스(범례)로 토글될 때 해당 노선(케이싱+컬러 라인 둘 다)만 지도에 남기고 나머지는 제거.
@@ -264,8 +331,10 @@ export default function MapView({ onSelect, visibleGrades, visibleRoutes }: Prop
       });
 
     return () => {
+      cancelled = true;
       observer.disconnect();
       map.remove();
+      mapRef.current = null;
     };
   }, []);
 

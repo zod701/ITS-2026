@@ -41,6 +41,15 @@ export default function GithubMarkdownButton({
 
   useEffect(() => {
     if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
 
     const fetchContent = async () => {
       for (const filename of filenames) {
@@ -103,8 +112,8 @@ export default function GithubMarkdownButton({
                   <button
                     className="doc-icon-button"
                     onClick={() => setShowDrivePreview((v) => !v)}
-                    aria-label="원본 문서 열람"
-                    title="원본 문서 열람"
+                    aria-label="제안서 보기"
+                    title="제안서 보기"
                     aria-pressed={showDrivePreview}
                   >
                     <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true">
@@ -122,7 +131,7 @@ export default function GithubMarkdownButton({
               <div className="drive-preview-body">
                 <iframe
                   src={`https://drive.google.com/file/d/${driveFileId}/preview`}
-                  title={`${title} 원본 문서`}
+                  title={`${title} 제안서`}
                   allow="autoplay"
                 />
               </div>
