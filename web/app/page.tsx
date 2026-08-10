@@ -3,7 +3,13 @@
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import GithubMarkdownButton from "./components/GithubMarkdownButton";
-import MapLegend, { GRADES, NO_DATA_KEY, type GradeFilterKey } from "./components/MapLegend";
+import MapLegend, {
+  BUS_ROUTES,
+  GRADES,
+  NO_DATA_KEY,
+  type BusRoute,
+  type GradeFilterKey,
+} from "./components/MapLegend";
 import PointDetailPanel from "./components/PointDetailPanel";
 import ThemeToggle from "./components/ThemeToggle";
 import type { SelectedPoint } from "./types";
@@ -17,18 +23,30 @@ export default function Home() {
   const [visibleGrades, setVisibleGrades] = useState<Record<GradeFilterKey, boolean>>(
     Object.fromEntries(ALL_GRADE_KEYS.map((k) => [k, true])) as Record<GradeFilterKey, boolean>
   );
+  const [visibleRoutes, setVisibleRoutes] = useState<Record<BusRoute, boolean>>(
+    Object.fromEntries(BUS_ROUTES.map((k) => [k, true])) as Record<BusRoute, boolean>
+  );
 
   const toggleGrade = (key: GradeFilterKey) => {
     setVisibleGrades((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+  const toggleRoute = (key: BusRoute) => {
+    setVisibleRoutes((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   return (
     <main style={{ position: "relative", height: "100vh", width: "100vw" }}>
-      <MapView onSelect={setSelected} visibleGrades={visibleGrades} />
+      <MapView onSelect={setSelected} visibleGrades={visibleGrades} visibleRoutes={visibleRoutes} />
       {selected && (
         <PointDetailPanel point={selected} onClose={() => setSelected(null)} />
       )}
-      <MapLegend visible={visibleGrades} onToggle={toggleGrade} style={{ left: 12, top: 90 }} />
+      <MapLegend
+        visibleGrades={visibleGrades}
+        onToggleGrade={toggleGrade}
+        visibleRoutes={visibleRoutes}
+        onToggleRoute={toggleRoute}
+        style={{ left: 12, top: 90 }}
+      />
       <ThemeToggle style={{ right: 24, top: 24 }} />
       <GithubMarkdownButton
         filenames={["README.md", "readme.md"]}

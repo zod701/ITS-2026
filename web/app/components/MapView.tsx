@@ -4,9 +4,11 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import type { SelectedPoint } from "../types";
 import {
+  BUS_ROUTE_COLORS,
   GRADE_COLORS,
   NO_DATA_COLOR,
   NO_DATA_KEY,
+  type BusRoute,
   type Grade,
   type GradeFilterKey,
 } from "./MapLegend";
@@ -35,7 +37,7 @@ const GRADE_COLORS_HOVER: Record<Grade, string> = {
   Caution: "#ca8a04",
   "High-risk": "#dc2626",
 };
-const NO_DATA_COLOR_HOVER = "#1d4ed8";
+const NO_DATA_COLOR_HOVER = "#d1d5db";
 
 interface RoadsGeoJson {
   type: "FeatureCollection";
@@ -53,9 +55,21 @@ interface PointsGeoJson {
   features: PointFeature[];
 }
 
+interface BusRouteFeature {
+  type: "Feature";
+  geometry: { type: "LineString"; coordinates: [number, number][] };
+  properties: { route: BusRoute; distance_km: number };
+}
+
+interface BusRoutesGeoJson {
+  type: "FeatureCollection";
+  features: BusRouteFeature[];
+}
+
 interface Props {
   onSelect: (point: SelectedPoint) => void;
   visibleGrades: Record<GradeFilterKey, boolean>;
+  visibleRoutes: Record<BusRoute, boolean>;
 }
 
 function isDarkTheme(): boolean {
@@ -94,11 +108,13 @@ function gradeKeyFor(roadDsi: RoadDsiMap, edgeId: string): GradeFilterKey {
   return roadDsi[edgeId]?.grade ?? NO_DATA_KEY;
 }
 
-export default function MapView({ onSelect, visibleGrades }: Props) {
+export default function MapView({ onSelect, visibleGrades, visibleRoutes }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onSelectRef = useRef(onSelect);
   const visibleGradesRef = useRef(visibleGrades);
   const applyFilterRef = useRef<() => void>(() => {});
+  const visibleRoutesRef = useRef(visibleRoutes);
+  const applyRouteFilterRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -108,6 +124,11 @@ export default function MapView({ onSelect, visibleGrades }: Props) {
     visibleGradesRef.current = visibleGrades;
     applyFilterRef.current();
   }, [visibleGrades]);
+
+  useEffect(() => {
+    visibleRoutesRef.current = visibleRoutes;
+    applyRouteFilterRef.current();
+  }, [visibleRoutes]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -206,6 +227,41 @@ export default function MapView({ onSelect, visibleGrades }: Props) {
       };
       applyFilterRef.current();
     });
+
+    fetch("/data/bus_routes.geojson")
+      .then((res) => res.json())
+      .then((busRoutes: BusRoutesGeoJson) => {
+        // 도로 위험도(DSI) 선과 헷갈리지 않도록, 버스 노선은 어두운 케이싱(테두리)을 먼저
+        // 깔고 그 위에 컬러 실선을 겹쳐 그린다 — 굵은 테두리가 있는 실선이라 얇은 DSI 라인과
+        // 형태 자체가 달라 구분된다.
+        const casingLayer = L.geoJSON(busRoutes as GeoJSON.GeoJsonObject, {
+          style: () => ({
+            color: "#111827",
+            weight: 9,
+            opacity: 0.55,
+          }),
+        }).addTo(map);
+        const busRoutesLayer = L.geoJSON(busRoutes as GeoJSON.GeoJsonObject, {
+          style: (feature) => ({
+            color: BUS_ROUTE_COLORS[(feature as unknown as BusRouteFeature).properties.route],
+            weight: 5,
+            opacity: 1,
+          }),
+        }).addTo(map);
+
+        // 노선 체크박스(범례)로 토글될 때 해당 노선(케이싱+컬러 라인 둘 다)만 지도에 남기고 나머지는 제거.
+        applyRouteFilterRef.current = () => {
+          [casingLayer, busRoutesLayer].forEach((layerGroup) => {
+            layerGroup.eachLayer((layer) => {
+              const feature = (layer as L.Path & { feature: BusRouteFeature }).feature;
+              const show = visibleRoutesRef.current[feature.properties.route];
+              const el = (layer as L.Path).getElement();
+              if (el) (el as HTMLElement).style.display = show ? "" : "none";
+            });
+          });
+        };
+        applyRouteFilterRef.current();
+      });
 
     return () => {
       observer.disconnect();
