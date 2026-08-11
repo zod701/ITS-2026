@@ -96,6 +96,16 @@ export default function PointDetailPanel({ point, onClose }: Props) {
     "High-risk": "#ef4444",
   };
 
+  // dsi_map.json에 저장된 grade(구 임계값 Safe<1.0/Caution<1.8 기준)는 매칭 테이블
+  // 원본 그대로 두고, 배지 표시에는 지점 단위 DSI 분포의 3등분(tercile) 경계값을 쓴다.
+  // 지도 도로 색상(MapView.tsx)의 도로 단위 경계값(2.36/3.57)과는 분포가 달라 별도 값.
+  const POINT_DSI_TERCILES: [number, number] = [1.92, 3.14];
+  const gradeFromDsi = (dsi: number): string => {
+    if (dsi < POINT_DSI_TERCILES[0]) return "Safe";
+    if (dsi < POINT_DSI_TERCILES[1]) return "Caution";
+    return "High-risk";
+  };
+
   const handleCopyLink = async () => {
     const url = new URL(window.location.href);
     url.searchParams.set("point", point.pointId);
@@ -132,9 +142,9 @@ export default function PointDetailPanel({ point, onClose }: Props) {
                     {dsiRecord.dsi.toFixed(2)}{" "}
                     <span
                       className="dsi-grade-badge"
-                      style={{ background: GRADE_COLORS[dsiRecord.grade] ?? "#9ca3af" }}
+                      style={{ background: GRADE_COLORS[gradeFromDsi(dsiRecord.dsi)] }}
                     >
-                      {dsiRecord.grade}
+                      {gradeFromDsi(dsiRecord.dsi)}
                     </span>
                   </>
                 ) : dsiMap === null ? (

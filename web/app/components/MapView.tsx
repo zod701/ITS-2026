@@ -102,8 +102,20 @@ function nearestPoint(
   return best;
 }
 
+// 도로(edge) 단위 평균 DSI 분포의 3등분(tercile) 경계값으로 등급을 재계산한다.
+// road_dsi_map.json에 이미 저장된 grade 필드(구 임계값 Safe<1.0/Caution<1.8 기준)는
+// 매칭 테이블 원본 그대로 두고, 지도 색상 표시에만 이 새 기준을 적용한다.
+const ROAD_DSI_TERCILES: [number, number] = [2.36, 3.57];
+
+function gradeFromDsi(dsi: number): Grade {
+  if (dsi < ROAD_DSI_TERCILES[0]) return "Safe";
+  if (dsi < ROAD_DSI_TERCILES[1]) return "Caution";
+  return "High-risk";
+}
+
 function gradeKeyFor(roadDsi: RoadDsiMap, edgeId: string): GradeFilterKey {
-  return roadDsi[edgeId]?.grade ?? NO_DATA_KEY;
+  const rec = roadDsi[edgeId];
+  return rec ? gradeFromDsi(rec.dsi) : NO_DATA_KEY;
 }
 
 export default function MapView({
@@ -235,11 +247,11 @@ export default function MapView({
 
     const colorFor = (edgeId: string) => {
       const rec = roadDsi[edgeId];
-      return rec ? GRADE_COLORS[rec.grade] : NO_DATA_COLOR;
+      return rec ? GRADE_COLORS[gradeFromDsi(rec.dsi)] : NO_DATA_COLOR;
     };
     const hoverColorFor = (edgeId: string) => {
       const rec = roadDsi[edgeId];
-      return rec ? GRADE_COLORS_HOVER[rec.grade] : NO_DATA_COLOR_HOVER;
+      return rec ? GRADE_COLORS_HOVER[gradeFromDsi(rec.dsi)] : NO_DATA_COLOR_HOVER;
     };
 
     Promise.all([

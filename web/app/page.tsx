@@ -42,7 +42,7 @@ function HomeInner() {
     Object.fromEntries(ALL_GRADE_KEYS.map((k) => [k, true])) as Record<GradeFilterKey, boolean>
   );
   const [visibleRoutes, setVisibleRoutes] = useState<Record<BusRoute, boolean>>(
-    Object.fromEntries(BUS_ROUTES.map((k) => [k, true])) as Record<BusRoute, boolean>
+    Object.fromEntries(BUS_ROUTES.map((k) => [k, false])) as Record<BusRoute, boolean>
   );
 
   const toggleGrade = (key: GradeFilterKey) => {
