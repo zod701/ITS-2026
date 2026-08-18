@@ -15,6 +15,7 @@ import PointDetailPanel from "./components/PointDetailPanel";
 import SearchBox from "./components/SearchBox";
 import ThemeToggle from "./components/ThemeToggle";
 import type { PointFeature, SelectedPoint } from "./types";
+import { DEFAULT_DSI_VERSION } from "./versions";
 
 const MapView = dynamic(() => import("./components/MapView"), { ssr: false });
 
@@ -44,6 +45,8 @@ function HomeInner() {
   const [visibleRoutes, setVisibleRoutes] = useState<Record<BusRoute, boolean>>(
     Object.fromEntries(BUS_ROUTES.map((k) => [k, false])) as Record<BusRoute, boolean>
   );
+  // 03 실행 버전. 지도 색상·평균 DSI·패널의 DSI 값과 BEV 이미지가 모두 이 값을 따른다.
+  const [dsiVersion, setDsiVersion] = useState<string>(DEFAULT_DSI_VERSION);
 
   const toggleGrade = (key: GradeFilterKey) => {
     setVisibleGrades((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -104,15 +107,20 @@ function HomeInner() {
         onSelect={selectPoint}
         visibleGrades={visibleGrades}
         visibleRoutes={visibleRoutes}
+        version={dsiVersion}
         flyToTarget={flyToTarget}
         highlightPointIds={highlightPointIds}
       />
-      {selected && <PointDetailPanel point={selected} onClose={closePanel} />}
+      {selected && (
+        <PointDetailPanel point={selected} version={dsiVersion} onClose={closePanel} />
+      )}
       <MapLegend
         visibleGrades={visibleGrades}
         onToggleGrade={toggleGrade}
         visibleRoutes={visibleRoutes}
         onToggleRoute={toggleRoute}
+        version={dsiVersion}
+        onChangeVersion={setDsiVersion}
         style={{ left: 60, right: 84, top: 12, justifyContent: "center" }}
       />
       <SearchBox

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DSI_VERSIONS } from "../versions";
 
 export type Grade = "Safe" | "Caution" | "High-risk";
 export const GRADES: Grade[] = ["Safe", "Caution", "High-risk"];
@@ -47,6 +48,8 @@ interface Props {
   onToggleGrade: (key: GradeFilterKey) => void;
   visibleRoutes: Record<BusRoute, boolean>;
   onToggleRoute: (key: BusRoute) => void;
+  version: string;
+  onChangeVersion: (id: string) => void;
   style?: React.CSSProperties;
 }
 
@@ -55,18 +58,29 @@ export default function MapLegend({
   onToggleGrade,
   visibleRoutes,
   onToggleRoute,
+  version,
+  onChangeVersion,
   style,
 }: Props) {
   const gradeKeys: GradeFilterKey[] = [...GRADES, NO_DATA_KEY];
   const [routeDsi, setRouteDsi] = useState<BusRouteDsiMap>({});
   const [collapsed, setCollapsed] = useState(false);
 
+  // 평균 DSI 도 버전마다 값이 다르므로 등급 색과 같은 버전을 따라간다.
   useEffect(() => {
-    fetch("/data/bus_route_dsi.json")
+    let cancelled = false;
+    fetch(`/data/bus_route_dsi_${version}.json`)
       .then((res) => res.json())
-      .then(setRouteDsi)
-      .catch(() => setRouteDsi({}));
-  }, []);
+      .then((data) => {
+        if (!cancelled) setRouteDsi(data);
+      })
+      .catch(() => {
+        if (!cancelled) setRouteDsi({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
 
   // 모바일에서는 범례가 지도를 크게 가리므로 기본 접힘. 서버 렌더와 동일한 펼침 상태로
   // 첫 렌더한 뒤 마운트 후에 접어서 하이드레이션 불일치를 피한다. (데스크탑은 항상 펼침이며
@@ -87,6 +101,28 @@ export default function MapLegend({
       {/* display:contents(데스크탑)로 감싸 레이아웃에 영향을 주지 않으면서,
           모바일에서만 이 래퍼를 접기 대상으로 쓴다. */}
       <div className="legend-content">
+        <div className="legend-section">
+          <div className="legend-heading">파이프라인 버전</div>
+          {/* 버전은 계속 쌓이므로 개수와 무관하게 폭이 일정한 셀렉트로 둔다.
+              (알약 버튼을 나열하면 버전이 늘어날수록 범례가 가로로 밀린다.) */}
+          <select
+            className="version-select"
+            value={version}
+            onChange={(e) => onChangeVersion(e.target.value)}
+            aria-label="파이프라인 버전"
+            title="지도 색상·DSI 값·BEV 이미지가 함께 바뀝니다. 버전 간 DSI 값은 정의가 달라 직접 비교할 수 없습니다."
+          >
+            {DSI_VERSIONS.map((v, i) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+                {i === 0 ? " (최신)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="legend-divider" />
+
         <div className="legend-section">
           <div className="legend-heading">도로 위험도 (DSI)</div>
           <div className="legend-row">
@@ -200,6 +236,26 @@ export default function MapLegend({
         }
         .legend-item-off {
           opacity: 0.4;
+        }
+        /* 버전은 여러 개 중 하나만 고르는 선택이라, 켜고 끄는 등급/노선 항목과 달리
+           셀렉트로 둔다(체크박스처럼 보이면 여러 개를 켤 수 있어 보인다). */
+        .version-select {
+          border: 1px solid var(--border-color);
+          background: var(--panel-bg);
+          color: var(--foreground);
+          font-size: 12px;
+          font-family: inherit;
+          padding: 3px 6px;
+          border-radius: 6px;
+          cursor: pointer;
+          max-width: 150px;
+        }
+        .version-select:hover {
+          border-color: var(--link-color);
+        }
+        .version-select:focus-visible {
+          outline: 2px solid var(--link-color);
+          outline-offset: 1px;
         }
         .legend-dsi {
           padding-left: 4px;

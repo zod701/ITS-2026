@@ -1,25 +1,36 @@
-"""Build point_id_pano_id -> DSI summary map from output/03_bev2/*_dsi.json.
+"""Build point_id_pano_id -> DSI summary map from a 03 run's *_dsi.json.
 
-Writes web/public/data/dsi_map.json as
+Writes web/public/data/dsi_map_<version>.json as
 { "<point_id>_<pano_id>": { "dsi": <float>, "grade": <str> } }.
 
 Unlike image maps, this reads local pipeline output directly (not Google Drive) —
 the DSI values themselves are small JSON, not images, so they're committed straight
 into web/public/data/.
 
+<version> labels one 03 run and must match the Drive image folder name and the
+entry in app/versions.ts, e.g. 260818. DSI is *not* comparable across versions:
+the formula itself changed, so each version carries its own grade thresholds.
+
 Usage:
-  python build_dsi_map.py
+  python build_dsi_map.py <version> [bev_dir]
+    bev_dir defaults to output/03_bev2 (relative to the repo root).
 """
 import json
+import sys
 from pathlib import Path
 
 WEB_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = WEB_DIR.parent
-BEV_DIR = REPO_ROOT / "output" / "03_bev2"
-OUT_PATH = WEB_DIR / "public" / "data" / "dsi_map.json"
+DEFAULT_BEV_DIR = REPO_ROOT / "output" / "03_bev2"
 
 
 def main():
+    if len(sys.argv) not in (2, 3):
+        raise SystemExit("Usage: python build_dsi_map.py <version> [bev_dir]")
+    version = sys.argv[1]
+    BEV_DIR = Path(sys.argv[2]) if len(sys.argv) == 3 else DEFAULT_BEV_DIR
+    OUT_PATH = WEB_DIR / "public" / "data" / f"dsi_map_{version}.json"
+
     # glob 은 없는 디렉터리에서도 예외 없이 빈 결과를 준다. 그대로 진행하면 0건짜리
     # dsi_map.json 을 쓰고 뒤따르는 road/bus 스크립트까지 비워, 웹의 DSI 가 전부 사라진다.
     if not BEV_DIR.is_dir():

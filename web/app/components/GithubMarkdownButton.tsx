@@ -2,11 +2,22 @@
 
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 
 const REPO = "zod701/ITS-2026";
 const REPO_URL = `https://github.com/${REPO}`;
 const BRANCH = "main";
+const RAW_BASE = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/`;
+const BLOB_BASE = `${REPO_URL}/blob/${BRANCH}/`;
+
+// 저장소 문서를 이 사이트 도메인에서 렌더링하므로 문서 안의 상대 경로는 그대로 두면 404 다
+// (예: README 의 result_sample/260818/*.jpg). 이미지는 raw 로, 문서 링크는 GitHub 문서
+// 페이지로 돌린다. 절대 URL·앵커·mailto 는 손대지 않는다.
+function transformUrl(url: string, key: string): string {
+  if (/^(https?:|mailto:|#|data:)/i.test(url)) return url;
+  return (key === "src" ? RAW_BASE : BLOB_BASE) + url.replace(/^\.?\//, "");
+}
 
 interface CommitInfo {
   sha: string;
@@ -160,7 +171,15 @@ export default function GithubMarkdownButton({
                   {contentError && <p>{filenames[0]}를 불러오지 못했습니다.</p>}
                   {!contentError && content === null && <p>{filenames[0]}를 불러오는 중…</p>}
                   {content !== null && (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                    // rehypeRaw: README 의 가운데 정렬 헤더·예시 이미지·캡션이 전부 HTML 이라
+                    // 이게 없으면 통째로 사라진다. 읽는 문서가 자기 저장소 것뿐이라 안전하다.
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeRaw]}
+                      urlTransform={transformUrl}
+                    >
+                      {content}
+                    </ReactMarkdown>
                   )}
                 </div>
               </div>
@@ -202,15 +221,17 @@ export default function GithubMarkdownButton({
           background: var(--panel-bg);
           color: var(--foreground);
           border-radius: 8px;
-          width: min(680px, 90vw);
-          max-height: 80vh;
+          /* README·method 는 표가 많아 680px 에서는 열이 뭉개진다. 넓은 화면에서는
+             1100px 까지 쓰고, 좁아지면 화면 폭의 92%까지 따라 줄어든다. */
+          width: min(1100px, 92vw);
+          max-height: 88vh;
           display: flex;
           flex-direction: column;
           overflow: hidden;
           font-family: var(--font-modal), sans-serif;
         }
         .md-modal-preview {
-          height: 80vh;
+          height: 88vh;
         }
         .md-modal-header {
           display: flex;
@@ -320,6 +341,49 @@ export default function GithubMarkdownButton({
         }
         .markdown-content :global(a) {
           color: var(--link-color);
+        }
+        /* 표: react-markdown 은 <table> 을 그대로 내보내므로 테두리·여백을 여기서 준다.
+           display:block + overflow 는 열이 많은 표가 모달 폭을 넘길 때 표 안에서만
+           가로 스크롤되게 한다(모달 전체가 밀리지 않는다). */
+        .markdown-content :global(table) {
+          display: block;
+          width: max-content;
+          max-width: 100%;
+          overflow-x: auto;
+          border-collapse: collapse;
+          margin: 12px 0;
+          font-size: 14px;
+        }
+        .markdown-content :global(th),
+        .markdown-content :global(td) {
+          border: 1px solid var(--border-color);
+          padding: 6px 10px;
+          text-align: left;
+          vertical-align: top;
+        }
+        .markdown-content :global(th) {
+          background: var(--panel-meta-bg);
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .markdown-content :global(blockquote) {
+          margin: 12px 0;
+          padding: 2px 0 2px 12px;
+          border-left: 3px solid var(--border-color);
+          color: var(--text-secondary);
+        }
+        .markdown-content :global(blockquote) :global(p) {
+          margin: 4px 0;
+        }
+        .markdown-content :global(img) {
+          max-width: 100%;
+          height: auto;
+          border-radius: 4px;
+        }
+        .markdown-content :global(hr) {
+          border: none;
+          border-top: 1px solid var(--border-color);
+          margin: 16px 0;
         }
 
         /* 모바일: 모달이 화면을 더 채우게 하고, 문서 미리보기 높이도 dvh 기준으로. */

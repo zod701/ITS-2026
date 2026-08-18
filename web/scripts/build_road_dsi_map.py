@@ -11,22 +11,26 @@ re-derived from the mean using the same thresholds as compute_dsi_refined's
 grade_of (Safe < 1.0 <= Caution < 1.8 <= High-risk), not majority-voted from
 per-point grades, so it's consistent with the numeric value shown/used.
 
-Writes web/public/data/road_dsi_map.json as
+Writes web/public/data/road_dsi_map_<version>.json as
 { "<edge_id>": { "dsi": <float>, "grade": <str>, "n": <int> } }
 where n = number of points with a DSI record that contributed to the mean.
 
+Run once per 03 version (same label as build_dsi_map.py), e.g. 260818.
+The map colors roads by re-deriving the grade from this mean against the
+version's roadTerciles in app/versions.ts, so the grade written here is only
+the legacy label kept for reference.
+
 Usage:
-  python build_road_dsi_map.py
+  python build_road_dsi_map.py <version>
 """
 import csv
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 
 WEB_DIR = Path(__file__).resolve().parent.parent
 CSV_PATH = WEB_DIR.parent / "GIS" / "historical_panoids_filtered.csv"
-DSI_MAP_PATH = WEB_DIR / "public" / "data" / "dsi_map.json"
-OUT_PATH = WEB_DIR / "public" / "data" / "road_dsi_map.json"
 
 
 def grade_of(dsi: float) -> str:
@@ -34,6 +38,12 @@ def grade_of(dsi: float) -> str:
 
 
 def main():
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: python build_road_dsi_map.py <version>")
+    version = sys.argv[1]
+    DSI_MAP_PATH = WEB_DIR / "public" / "data" / f"dsi_map_{version}.json"
+    OUT_PATH = WEB_DIR / "public" / "data" / f"road_dsi_map_{version}.json"
+
     dsi_map = json.loads(DSI_MAP_PATH.read_text(encoding="utf-8"))
 
     edge_dsis = defaultdict(list)

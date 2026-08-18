@@ -1,5 +1,5 @@
-"""GIS/bus_lanes.gpkg + web/public/data/{points.geojson,dsi_map.json} ->
-web/public/data/bus_route_dsi.json
+"""GIS/bus_lanes.gpkg + web/public/data/{points.geojson,dsi_map_<version>.json} ->
+web/public/data/bus_route_dsi_<version>.json
 
 For each bus route (A/B/C), buffers the hand-traced route line by BUFFER_M
 meters and averages the DSI of all points (from dsi_map.json) that fall
@@ -10,10 +10,13 @@ Also writes an "overall" entry: the mean DSI across every point in
 dsi_map.json (not just those near a bus route), for the map legend's
 whole-study-area summary line.
 
+Run once per 03 version (same label as build_dsi_map.py), e.g. 260818.
+
 Usage:
-  python build_bus_route_dsi.py
+  python build_bus_route_dsi.py <version>
 """
 import json
+import sys
 from pathlib import Path
 
 import geopandas as gpd
@@ -22,14 +25,18 @@ from shapely.geometry import Point
 WEB_DIR = Path(__file__).resolve().parent.parent
 GPKG_PATH = WEB_DIR.parent / "GIS" / "bus_lanes.gpkg"
 POINTS_PATH = WEB_DIR / "public" / "data" / "points.geojson"
-DSI_MAP_PATH = WEB_DIR / "public" / "data" / "dsi_map.json"
-OUT_PATH = WEB_DIR / "public" / "data" / "bus_route_dsi.json"
 
 BUFFER_M = 20.0
 METRIC_CRS = "EPSG:5179"  # Korea 2000 / Unified CS
 
 
 def main():
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: python build_bus_route_dsi.py <version>")
+    version = sys.argv[1]
+    DSI_MAP_PATH = WEB_DIR / "public" / "data" / f"dsi_map_{version}.json"
+    OUT_PATH = WEB_DIR / "public" / "data" / f"bus_route_dsi_{version}.json"
+
     routes = gpd.read_file(GPKG_PATH).to_crs(METRIC_CRS)
 
     points = json.loads(POINTS_PATH.read_text(encoding="utf-8"))

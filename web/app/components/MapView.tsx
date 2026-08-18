@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import L from "leaflet";
 import type { PointFeature, SelectedPoint } from "../types";
+import { gradeFromDsi, versionById } from "../versions";
 import {
   BUS_ROUTE_COLORS,
   GRADE_COLORS,
@@ -64,6 +65,8 @@ interface Props {
   onSelect: (point: SelectedPoint) => void;
   visibleGrades: Record<GradeFilterKey, boolean>;
   visibleRoutes: Record<BusRoute, boolean>;
+  /** 도로 색상에 쓸 03 실행 버전 (versions.ts). 바뀌면 선 색을 다시 칠한다. */
+  version: string;
   /** 값이 바뀔 때마다 지도를 해당 지점으로 이동(flyTo)한다. */
   flyToTarget: SelectedPoint | null;
   /** 검색으로 찾은 후보 지점들을 지도 위에 강조 마커로 표시. */
@@ -102,26 +105,16 @@ function nearestPoint(
   return best;
 }
 
-// 도로(edge) 단위 평균 DSI 분포의 3등분(tercile) 경계값으로 등급을 재계산한다.
-// road_dsi_map.json에 이미 저장된 grade 필드(구 임계값 Safe<1.0/Caution<1.8 기준)는
-// 매칭 테이블 원본 그대로 두고, 지도 색상 표시에만 이 새 기준을 적용한다.
-const ROAD_DSI_TERCILES: [number, number] = [2.36, 3.57];
-
-function gradeFromDsi(dsi: number): Grade {
-  if (dsi < ROAD_DSI_TERCILES[0]) return "Safe";
-  if (dsi < ROAD_DSI_TERCILES[1]) return "Caution";
-  return "High-risk";
-}
-
-function gradeKeyFor(roadDsi: RoadDsiMap, edgeId: string): GradeFilterKey {
-  const rec = roadDsi[edgeId];
-  return rec ? gradeFromDsi(rec.dsi) : NO_DATA_KEY;
-}
+// 도로(edge) 단위 평균 DSI 분포의 3등분(tercile) 경계값으로 등급을 재계산한다. 경계값은
+// 버전마다 다르므로(versions.ts) 여기 고정하지 않고 선택된 버전의 값을 받아 쓴다.
+// road_dsi_map_*.json에 저장된 grade 필드(구 임계값 Safe<1.0/Caution<1.8 기준)는
+// 매칭 테이블 원본 그대로 두고, 지도 색상 표시에만 이 기준을 적용한다.
 
 export default function MapView({
   onSelect,
   visibleGrades,
   visibleRoutes,
+  version,
   flyToTarget,
   highlightPointIds,
 }: Props) {
@@ -134,15 +127,69 @@ export default function MapView({
   const mapRef = useRef<L.Map | null>(null);
   const pointsRef = useRef<PointFeature[]>([]);
   const highlightLayerRef = useRef<L.LayerGroup | null>(null);
+  // 버전이 바뀌면 지도를 다시 만들지 않고 선 색만 갈아입힌다(줌·이동 상태 유지).
+  // 지도 생성 effect 는 []로 한 번만 도므로, 그 안의 콜백이 최신 값을 보도록 ref 로 둔다.
+  const roadDsiRef = useRef<RoadDsiMap>({});
+  const roadTercilesRef = useRef<[number, number]>(versionById(version).roadTerciles);
+  const roadsLayerRef = useRef<L.GeoJSON | null>(null);
+  const restyleRoadsRef = useRef<() => void>(() => {});
   // 도로(DSI)와 버스 노선은 각자 독립적인 fetch로 비동기 추가되므로, 어느 쪽이 먼저
   // 도착하느냐에 따라 SVG z-order(추가 순서)가 매번 달라질 수 있다. 버스 노선 레이어를
   // 항상 여기 저장해두고, 도로 레이어가 (나중에) 추가된 직후 다시 앞으로 가져와 항상
   // 버스 노선이 DSI 선 위에 보이도록 강제한다.
   const busRouteLayersRef = useRef<L.GeoJSON[]>([]);
 
+  // ref 만 읽으므로 신원이 고정돼도 항상 현재 버전의 데이터를 본다.
+  const gradeKeyFor = useCallback((edgeId: string): GradeFilterKey => {
+    const rec = roadDsiRef.current[edgeId];
+    return rec ? gradeFromDsi(rec.dsi, roadTercilesRef.current) : NO_DATA_KEY;
+  }, []);
+  const colorFor = useCallback((edgeId: string): string => {
+    const rec = roadDsiRef.current[edgeId];
+    return rec ? GRADE_COLORS[gradeFromDsi(rec.dsi, roadTercilesRef.current)] : NO_DATA_COLOR;
+  }, []);
+  const hoverColorFor = useCallback((edgeId: string): string => {
+    const rec = roadDsiRef.current[edgeId];
+    return rec
+      ? GRADE_COLORS_HOVER[gradeFromDsi(rec.dsi, roadTercilesRef.current)]
+      : NO_DATA_COLOR_HOVER;
+  }, []);
+
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
+
+  // 버전이 바뀌면 해당 버전의 도로 DSI 를 받아 선 색만 다시 칠한다. 지도 인스턴스는 그대로
+  // 두므로 보고 있던 위치·줌이 유지된다. 도로 레이어가 아직 없으면(첫 로드) 레이어가
+  // 만들어진 뒤 restyleRoadsRef 로 한 번 더 호출된다.
+  useEffect(() => {
+    let cancelled = false;
+    const restyle = () => {
+      const layer = roadsLayerRef.current;
+      if (!layer) return;
+      layer.setStyle((feature) => ({
+        color: colorFor((feature as unknown as RoadFeature).properties.edge_id),
+        weight: 4,
+        opacity: 0.85,
+      }));
+      applyFilterRef.current();
+    };
+    restyleRoadsRef.current = restyle;
+
+    fetch(`/data/road_dsi_map_${version}.json`)
+      .then((res) => res.json())
+      .catch(() => ({}))
+      .then((data: RoadDsiMap) => {
+        if (cancelled) return;
+        roadDsiRef.current = data;
+        roadTercilesRef.current = versionById(version).roadTerciles;
+        restyle();
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [version, colorFor]);
 
   useEffect(() => {
     visibleGradesRef.current = visibleGrades;
@@ -235,7 +282,6 @@ export default function MapView({
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
     let points: PointFeature[] = [];
-    let roadDsi: RoadDsiMap = {};
 
     fetch("/data/points.geojson")
       .then((res) => res.json())
@@ -245,71 +291,61 @@ export default function MapView({
         pointsRef.current = data.features;
       });
 
-    const colorFor = (edgeId: string) => {
-      const rec = roadDsi[edgeId];
-      return rec ? GRADE_COLORS[gradeFromDsi(rec.dsi)] : NO_DATA_COLOR;
-    };
-    const hoverColorFor = (edgeId: string) => {
-      const rec = roadDsi[edgeId];
-      return rec ? GRADE_COLORS_HOVER[gradeFromDsi(rec.dsi)] : NO_DATA_COLOR_HOVER;
-    };
-
-    Promise.all([
-      fetch("/data/roads.geojson").then((res) => res.json()),
-      fetch("/data/road_dsi_map.json")
-        .then((res) => res.json())
-        .catch(() => ({})),
-    ]).then(([data, dsiData]: [RoadsGeoJson, RoadDsiMap]) => {
-      if (cancelled) return;
-      roadDsi = dsiData;
-      const roadsLayer = L.geoJSON(data as GeoJSON.GeoJsonObject, {
-        style: (feature) => ({
-          color: colorFor((feature as unknown as RoadFeature).properties.edge_id),
-          weight: 4,
-          opacity: 0.85,
-        }),
-        onEachFeature: (feature, layer) => {
-          const edgeId = (feature as unknown as RoadFeature).properties.edge_id;
-          layer.on("mouseover", () => {
-            if (!visibleGradesRef.current[gradeKeyFor(roadDsi, edgeId)]) return;
-            (layer as L.Path).setStyle({ color: hoverColorFor(edgeId), weight: 6 });
-          });
-          layer.on("mouseout", () => {
-            if (!visibleGradesRef.current[gradeKeyFor(roadDsi, edgeId)]) return;
-            (layer as L.Path).setStyle({ color: colorFor(edgeId), weight: 4 });
-          });
-          layer.on("click", (e: L.LeafletMouseEvent) => {
-            if (!visibleGradesRef.current[gradeKeyFor(roadDsi, edgeId)]) return;
-            if (points.length === 0) return;
-            const nearest = nearestPoint(points, e.latlng.lat, e.latlng.lng);
-            if (!nearest) return;
-            const [lon, lat] = nearest.geometry.coordinates;
-            onSelectRef.current({
-              pointId: nearest.properties.point_id,
-              panoId: nearest.properties.pano_id,
-              lat,
-              lon,
+    fetch("/data/roads.geojson")
+      .then((res) => res.json())
+      .then((data: RoadsGeoJson) => {
+        if (cancelled) return;
+        const roadsLayer = L.geoJSON(data as GeoJSON.GeoJsonObject, {
+          style: (feature) => ({
+            color: colorFor((feature as unknown as RoadFeature).properties.edge_id),
+            weight: 4,
+            opacity: 0.85,
+          }),
+          onEachFeature: (feature, layer) => {
+            const edgeId = (feature as unknown as RoadFeature).properties.edge_id;
+            layer.on("mouseover", () => {
+              if (!visibleGradesRef.current[gradeKeyFor(edgeId)]) return;
+              (layer as L.Path).setStyle({ color: hoverColorFor(edgeId), weight: 6 });
             });
-          });
-        },
-      });
-      roadsLayer.addTo(map);
-      // 도로가 버스 노선보다 나중에 추가돼 위로 올라갈 수 있으니, 이미 그려진 버스
-      // 노선이 있으면 다시 맨 앞으로 가져온다.
-      busRouteLayersRef.current.forEach((layer) => layer.bringToFront());
-
-      // grade 체크박스(범례)로 토글될 때 해당 등급 도로만 지도에 남기고 나머지는 제거.
-      applyFilterRef.current = () => {
-        roadsLayer.eachLayer((layer) => {
-          const feature = (layer as L.Path & { feature: RoadFeature }).feature;
-          const edgeId = feature.properties.edge_id;
-          const show = visibleGradesRef.current[gradeKeyFor(roadDsi, edgeId)];
-          const el = (layer as L.Path).getElement();
-          if (el) (el as HTMLElement).style.display = show ? "" : "none";
+            layer.on("mouseout", () => {
+              if (!visibleGradesRef.current[gradeKeyFor(edgeId)]) return;
+              (layer as L.Path).setStyle({ color: colorFor(edgeId), weight: 4 });
+            });
+            layer.on("click", (e: L.LeafletMouseEvent) => {
+              if (!visibleGradesRef.current[gradeKeyFor(edgeId)]) return;
+              if (points.length === 0) return;
+              const nearest = nearestPoint(points, e.latlng.lat, e.latlng.lng);
+              if (!nearest) return;
+              const [lon, lat] = nearest.geometry.coordinates;
+              onSelectRef.current({
+                pointId: nearest.properties.point_id,
+                panoId: nearest.properties.pano_id,
+                lat,
+                lon,
+              });
+            });
+          },
         });
-      };
-      applyFilterRef.current();
-    });
+        roadsLayer.addTo(map);
+        roadsLayerRef.current = roadsLayer;
+        // 도로가 버스 노선보다 나중에 추가돼 위로 올라갈 수 있으니, 이미 그려진 버스
+        // 노선이 있으면 다시 맨 앞으로 가져온다.
+        busRouteLayersRef.current.forEach((layer) => layer.bringToFront());
+
+        // grade 체크박스(범례)로 토글될 때 해당 등급 도로만 지도에 남기고 나머지는 제거.
+        applyFilterRef.current = () => {
+          roadsLayer.eachLayer((layer) => {
+            const feature = (layer as L.Path & { feature: RoadFeature }).feature;
+            const edgeId = feature.properties.edge_id;
+            const show = visibleGradesRef.current[gradeKeyFor(edgeId)];
+            const el = (layer as L.Path).getElement();
+            if (el) (el as HTMLElement).style.display = show ? "" : "none";
+          });
+        };
+        applyFilterRef.current();
+        // 도로 데이터가 DSI 맵보다 늦게 도착했을 수도 있으니 여기서도 한 번 칠한다.
+        restyleRoadsRef.current();
+      });
 
     fetch("/data/bus_routes.geojson")
       .then((res) => res.json())
@@ -360,6 +396,10 @@ export default function MapView({
       mapRef.current = null;
       busRouteLayersRef.current = [];
     };
+    // 이 effect 는 지도를 만들고 정리(map.remove())까지 하므로 반드시 마운트 1회만 돌아야
+    // 한다 - 다시 돌면 지도가 통째로 재생성되어 보고 있던 위치·줌이 초기화된다. 색상 함수
+    // 셋은 ref 만 읽어 항상 최신 버전을 보므로 의존성에 넣을 이유도 없다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return <div ref={containerRef} style={{ height: "100%", width: "100%" }} />;
