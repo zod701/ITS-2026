@@ -4,6 +4,8 @@ __pycache__/
 test/
 img/
 output/
+/GIS/노드링크/
+/GIS/실폭도로/
 
 *.pdf
 *.ps1

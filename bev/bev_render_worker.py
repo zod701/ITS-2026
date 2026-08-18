@@ -38,8 +38,17 @@ def render_and_save(args):
     legend_handles.append(plt.Line2D([0], [0], marker="^", color="blue", markersize=8,
                                       linestyle="None", label="Vehicle (origin)"))
 
+    # 도로 위 사각지대만 지표에 들어간다. 원판 전체를 같은 색으로 칠하면 그림이 강조하는 것과
+    # 숫자가 재는 것이 어긋나 -- 도로 밖 사각은 옅게 깔아 맥락으로만 남긴다.
+    road_mask = args.get("road_mask")
+
     def render_shadow(ax, bev_arr, shadow_grid, ray_hits, title, origin):
-        srgb = bev_arr.copy(); srgb[shadow_grid] = [255, 200, 0]
+        srgb = bev_arr.copy()
+        if road_mask is None:
+            srgb[shadow_grid] = [255, 200, 0]
+        else:
+            srgb[shadow_grid & ~road_mask] = [255, 238, 180]
+            srgb[shadow_grid & road_mask] = [255, 190, 0]
         ax.imshow(srgb, origin="upper")
         stepn = max(1, len(ray_hits) // n_arrows)
         for ang, hd in ray_hits[::stepn]:
@@ -48,15 +57,18 @@ def render_and_save(args):
                                 origin[1] - math.cos(a) * hd / grid_res),
                         xytext=origin, arrowprops=dict(arrowstyle="->", color="blue", lw=0.5))
         ax.plot(origin[0], origin[1], "b^", markersize=10)
-        ax.set_title(title, fontsize=9); ax.axis("off")
+        ax.set_title(title, fontsize=10); ax.axis("off")
 
-    fig = Figure(figsize=(6, 18)); FigureCanvasAgg(fig)
-    axes = fig.subplots(3, 1)
+    # 3패널 가로 배치. 세로 3단(649x2187, 종횡비 1:3.4)은 한 화면에 안 들어와 비교가
+    # 안 됐다. 가로로 두면 좌->우로 '차폐물만 / 구조물 사각 / 차량 포함 사각'을 나란히
+    # 읽을 수 있고, 제목 폭이 그림 폭을 넘지 않아 절단도 필요 없다.
+    fig = Figure(figsize=(16.5, 6.6)); FigureCanvasAgg(fig)
+    axes = fig.subplots(1, 3)
 
     axes[0].imshow(bev, origin="upper")
     axes[0].plot(center[0], center[1], "b^", markersize=10)
-    axes[0].set_title(args["title_occupancy"], fontsize=9); axes[0].axis("off")
-    axes[0].legend(handles=legend_handles, loc="upper right", fontsize=7)
+    axes[0].set_title(args["title_occupancy"], fontsize=10); axes[0].axis("off")
+    axes[0].legend(handles=legend_handles, loc="upper right", fontsize=8)
 
     render_shadow(axes[1], bev, shadow_occ, ray_hits_occ, args["title_occ"], center)
 
@@ -65,9 +77,10 @@ def render_and_save(args):
     else:
         axes[2].axis("off")
 
-    fig.suptitle(args["suptitle"], fontsize=10, y=1.01)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120, bbox_inches="tight")
+    # 고정폭: 숫자 자리가 맞아 여러 장을 훑을 때 같은 항목이 같은 위치에 온다.
+    fig.suptitle(args["suptitle"], fontsize=11, y=0.995, family="monospace", ha="center")
+    fig.tight_layout(rect=(0, 0, 1, 0.88))
+    fig.savefig(out_path, dpi=110, bbox_inches="tight")
     fig.clear()
     plt.close(fig)
     return out_path

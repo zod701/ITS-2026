@@ -1,7 +1,7 @@
 """One-shot re-sync of all web DSI-derived data after re-running 03_bev_shadow_gpu.ipynb.
 
 Runs, in dependency order:
-  1. build_dsi_map.py        output/03_bev_gpu/*_dsi.json -> web/public/data/dsi_map.json
+  1. build_dsi_map.py        output/03_bev2/*_dsi.json    -> web/public/data/dsi_map.json
   2. build_road_dsi_map.py   dsi_map.json                 -> web/public/data/road_dsi_map.json
   3. build_bus_route_dsi.py  dsi_map.json                 -> web/public/data/bus_route_dsi.json
 

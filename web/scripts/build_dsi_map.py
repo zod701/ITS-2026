@@ -1,4 +1,4 @@
-"""Build point_id_pano_id -> DSI summary map from output/03_bev_gpu/*_dsi.json.
+"""Build point_id_pano_id -> DSI summary map from output/03_bev2/*_dsi.json.
 
 Writes web/public/data/dsi_map.json as
 { "<point_id>_<pano_id>": { "dsi": <float>, "grade": <str> } }.
@@ -15,11 +15,16 @@ from pathlib import Path
 
 WEB_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = WEB_DIR.parent
-BEV_DIR = REPO_ROOT / "output" / "03_bev_gpu"
+BEV_DIR = REPO_ROOT / "output" / "03_bev2"
 OUT_PATH = WEB_DIR / "public" / "data" / "dsi_map.json"
 
 
 def main():
+    # glob 은 없는 디렉터리에서도 예외 없이 빈 결과를 준다. 그대로 진행하면 0건짜리
+    # dsi_map.json 을 쓰고 뒤따르는 road/bus 스크립트까지 비워, 웹의 DSI 가 전부 사라진다.
+    if not BEV_DIR.is_dir():
+        raise SystemExit(f"BEV_DIR not found: {BEV_DIR}")
+
     mapping = {}
     skipped = 0
     for path in BEV_DIR.glob("*_dsi.json"):
@@ -38,6 +43,9 @@ def main():
             skipped += 1
             continue
         mapping[key] = {"dsi": dsi, "grade": grade}
+
+    if not mapping:
+        raise SystemExit(f"No usable *_dsi.json under {BEV_DIR}; refusing to overwrite {OUT_PATH}")
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(OUT_PATH, "w", encoding="utf-8") as out:
