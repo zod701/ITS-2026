@@ -101,6 +101,13 @@ def main():
         key = f"{m.group('point_id')}_{m.group('pano_id')}"
         mapping[key] = f["id"]
 
+    # 0건이면 기존 매핑을 빈 파일로 덮어써 그 버전의 이미지가 통째로 사라진다. 폴더 ID 가
+    # 바뀌었거나(재업로드로 폴더를 다시 만들면 ID 가 바뀐다) 공유가 풀린 경우가 대부분이다.
+    if not mapping:
+        print(f"No files matched in folder {folder_id}; refusing to overwrite {out_path}. "
+              "Check the folder ID and that it is shared as 'Anyone with the link'.")
+        sys.exit(1)
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as out:
         json.dump(mapping, out, ensure_ascii=False, separators=(",", ":"))

@@ -54,17 +54,29 @@ TILT_MAX_DEG = 8.0       # 4.0 이었다. 수평 강제(n=(0,1,0))가 지면이 
                          # 원거리 도로를 통째로 차단물로 만들었다. 같은 도로 이웃 대비 초과
                          # 차폐 +0.230 -> +0.080. 8deg 초과에서는 원 적합의 이음매 잔차가
                          # 오히려 나빠져(0.114 vs 0.086) 클램프가 제 역할을 한다. (계획서 D-12/X-08)
-CAM_HEIGHT_DEFAULT = 2.5
+CAM_HEIGHT_DEFAULT = 2.5  # **전 파노라마 공통** (D-25). CSV 의 (camera_altitude-land_altitude)
+                          # 는 고도 1m 반올림 탓에 2.0/3.0 으로 튀는 잡음이다 -> X-35
 
 GROUND_PX_MIN = 300      # 한 면이 '지면을 봤다'고 인정하는 최소 픽셀 수
 FACES_MIN_VALID = 2      # 이 미만이면 보정이 식별되지 않는다 -> 값을 내지 않는다 (D-14)
 ROAD_UNKNOWN_MAX = 0.5   # 차량 뒤라 모르는 도로가 이 비율을 넘으면 판정하지 않는다 (D-15)
-ON_ROAD_MAX = 2.0        # 카메라가 실폭도로 폴리곤에서 이만큼 넘게 벗어나면 판정하지 않는다 (D-19).
+ON_ROAD_MAX = 5.0        # 카메라가 실폭도로 폴리곤에서 이만큼 넘게 벗어나면 판정하지 않는다
+                         # (D-19 로 도입, D-24 로 2.0 -> 5.0).
                          # 옛 기준(탐색 한계에 붙은 pose 개수 >= 2, D-16)은 within-edge 판별력이
                          # 정확히 0 이었다: 이탈도 차 +0.005 +- 0.002 로 무작위 50% 대조군(-0.002)
-                         # 과 구분되지 않는다. 새 창에서는 29.7% 를 걸러내면서 아무것도 못 잡는다.
-                         # 폴리곤 밖 거리는 +0.028 +- 0.006 (t=4.3) 이고 이미지 없이 GIS 만으로
-                         # 계산된다. (X-25)
+                         # 과 구분되지 않는다. (X-25)
+                         # 2.0 이 아니라 5.0 인 이유: 2~5m 띠의 초과 차폐는 +0.018 (t=3.1) 로
+                         # 유의하지만 **부호가 양수** 다 -- 위험을 높게 말하는 쪽이라 게이트가 아니라
+                         # 신뢰도로 다룰 문제다. 5m 부터는 근거리 포함률이 0.21 -> 0.01 로 무너져
+                         # '무엇을 쟀는지 모르는' 상태가 되므로 방향과 무관하게 막는다. (X-30/D-24)
+
+# ── 신뢰도 층 (D-24) ──────────────────────────────────────────────
+# 하드 게이트를 통과했지만 **위험을 높게 말할 가능성**이 있는 장을 버리지 않고 등급으로 남긴다.
+# 노선 최적화는 엣지 가중치를 쓰므로 판정 불가는 도로망에 구멍을 낸다 -- 17% 과대평가된 값이
+# 값 없음보다 낫다(순위는 유효하고 편향이 안전 방향이다).
+# 경계는 within-edge 초과 차폐로 정했다 (X-30): 0 +0.0202 / 1 +0.0049 / 2 -0.0061 로 단조.
+CONF_OFF_LOW,  CONF_SEAM_LOW,  CONF_NEAR_LOW = 2.0, 0.30, 0.30
+CONF_OFF_MID,  CONF_SEAM_MID = 0.0, 0.15
 
 # ── pose 정합 탐색 ────────────────────────────────────────────────
 # 창 크기의 근거 (X-24):
@@ -183,10 +195,24 @@ def load_road_class(csv_path="GIS/historical_panoids_filtered.csv",
     return dict(zip(stems, m.ROA_CLS_SE.astype("string")))
 
 
-def load_cam_heights(csv_path="GIS/historical_panoids_filtered.csv"):
-    """pano_id -> 리그 높이(m). (camera_altitude - land_altitude)/100. 2.5m 76% / 3.0m 12% / 2.0m 12%."""
+def load_cam_heights(csv_path="GIS/historical_panoids_filtered.csv", raw=False):
+    """pano_id -> 리그 높이(m). **모든 장에 상수 `CAM_HEIGHT_DEFAULT` 를 준다** (D-25).
+
+    `(camera_altitude - land_altitude)/100` 은 측정값이 아니다 — 고도가 캠페인에 따라
+    **1m 단위로 반올림**돼 있어 그 차이가 2.0 아니면 3.0 으로만 튄다. 같은 주행 2초 간격에
+    `cam_alt` 는 같은데 `land_alt` 만 1m 달라지는 쌍이 실제로 있다. 고도가 정밀하게 기록된
+    유일한 캠페인(2024-09, 27,650장)에서는 **전부 정확히 2.5m** 다.
+
+    `Z ∝ h` 이므로 이 잡음이 후기 캠페인 8,605장(23.7%)에 ±20% 거리 오차를 주입했다.
+    실측: 같은 도로에서 h=2.0/3.0 집단의 복원 도로 폭 비가 1.42 (옳으면 1.00, 참 높이가
+    같으면 1.50), 상수로 바꾸면 0.95. (X-35 → D-25)
+
+    `raw=True` 는 CSV 원본 값을 돌려준다 — **진단 전용**. 캠페인별 분석에 쓴다.
+    """
     import pandas as pd
     df = pd.read_csv(csv_path, encoding="utf-8-sig")
+    if not raw:
+        return dict.fromkeys(df.pano_id, CAM_HEIGHT_DEFAULT)
     h = (pd.to_numeric(df.camera_altitude, errors="coerce")
          - pd.to_numeric(df.land_altitude, errors="coerce")) / 100.0
     h = h.where(h.between(1.5, 4.0))
@@ -346,6 +372,28 @@ def calib_valid(cal):
     return faces_with_ground(cal) >= FACES_MIN_VALID
 
 
+def confidence(cam_off_m, seam_max, fit_fwd, fit_bwd):
+    """신뢰도 2(높음)/1(보통)/0(낮음). **판정 여부와 무관하다** -- 값은 항상 낸다 (D-24).
+
+    세 축 모두 within-edge 초과 차폐가 **양수** 다. 즉 이 장들은 위험을 높게 말하지 낮게
+    말하지 않는다. 그래서 버리지 않고 등급만 남긴다. 실측 (X-30, 하드 게이트 통과분 33,098장):
+
+        신뢰도 0  11.3%   초과차폐 +0.0202   dL_vis -0.89m   경보 12.4%
+        신뢰도 1  28.8%   초과차폐 +0.0049   dL_vis -0.29m   경보  9.0%
+        신뢰도 2  60.0%   초과차폐 -0.0061   dL_vis +0.31m   경보  3.5%
+
+    near 는 0.3~0.7 구간에서 초과 차폐가 0 이라(-0.003 / -0.001) 보통 조건에 넣지 않았다.
+    0.3 미만에서만 +0.027 로 튄다.
+    """
+    vals = [v for v in (fit_fwd, fit_bwd) if v is not None]
+    near_low = bool(vals) and (sum(vals) / len(vals)) < CONF_NEAR_LOW
+    if cam_off_m > CONF_OFF_LOW or seam_max >= CONF_SEAM_LOW or near_low:
+        return 0
+    if cam_off_m > CONF_OFF_MID or seam_max >= CONF_SEAM_MID:
+        return 1
+    return 2
+
+
 def seam_residuals(faces, cal):
     """이음매 4쌍 각각의 range 상대 불일치. 4면이 닫힌 고리라 이음매도 4개다.
 
@@ -487,8 +535,13 @@ def occupancy(faces, cal, include_vehicles=True):
     """4면 blocker(+vehicle) -> 대역 통과 점군 -> r(theta)."""
     keys = ("blocker", "vehicle") if include_vehicles else ("blocker",)
     th, rg, ht, mn = [], [], [], []
+    n_mask = 0
     for d in ORDER:
         for key in keys:
+            # 영상 공간 개수. n_raw 는 face_points 안에서 이미 inv_z > 1/R_MAX 와 flying pixel
+            # 을 거른 뒤라 보정 품질에 의존한다 -- '원래 볼 게 없었다'와 '투영이 밀어냈다'를
+            # 가르려면 보정과 무관한 이 값이 필요하다. (X-30 의 미해결 항목)
+            n_mask += int(faces[d][key].sum())
             t, r, h = face_points(faces[d], d, cal, faces[d][key])
             th.append(t); rg.append(r); ht.append(h)
             mn.append(np.full(len(r), R_MIN_EGO[d]))
@@ -501,6 +554,7 @@ def occupancy(faces, cal, include_vehicles=True):
                           minlength=N_BINS) if inr.any() else np.zeros(N_BINS, np.int64)
     starved = int(((votes == 0) & (any_bin > 0)).sum())
     return r_theta, {"n_points": int(band.sum()), "n_raw": int(len(th)),
+                     "n_mask": n_mask,
                      "starved_bins": starved, "empty_bins": int((votes == 0).sum())}
 
 
@@ -764,16 +818,35 @@ def _n2(v):
     return "n/a" if v is None else f"{v:.2f}"
 
 
+MAX_TITLE_COLS = 170     # 이 길이를 넘으면 bbox_inches="tight" 가 제목을 따라가 파일이
+                         # 넓어진다 (자당 +10px). 실제 렌더 워커로 실측한 값이다.
+
+
 def suptitle_for(rec, pano, tag=""):
-    """3패널 그림의 제목 (3행).
+    """3패널 그림의 제목 (4행).
 
     호출부에서 직접 조립하면 '검증한 문자열'과 '실제 문자열'이 어긋난다 -- 실제로 한 번
     어긋나 저장 폭이 벌어졌다. 여기 한 곳에서만 만든다.
 
-    1행 파노라마 ID / 2행 결론(등급 근거) / 3행 그 결론을 믿어도 되는지(품질).
-    matplotlib 기본 글꼴에 한글 글리프가 없으므로 영문으로만 쓴다.
+    1행 파노라마 ID / 2행 결론(등급 근거) / 3~4행 그 결론을 믿어도 되는지(품질).
+
+    품질을 두 행으로 나눈 이유는 **폭이 곧 파일 폭**이기 때문이다 -- `bbox_inches="tight"` 라
+    제목이 패널 폭을 넘으면 그만큼 그림이 넓어지고, `seam_worst` 이름 길이에 따라 장마다
+    폭이 달라진다. 세로는 `tight_layout(rect=..0.88)` 이 0.79in 를 잡아두는데 3행은
+    0.55in 만 써서 남았다. 4행이 0.73in 로 그 안에 들어간다.
+
+    **임계는 실측 170자다** (실제 렌더 워커로 재확인): 144~170자는 전부 1728x727 이고
+    171자부터 1732, 이후 자당 +10px 로 제목을 따라간다. 36,339장 실측 최장은 2행 165자였다.
+    그런데 조각이 동시에 최대인 **조합 최악은 168자**로 여유가 2자뿐이었다 -- 우연히 남은
+    여유이지 보장이 아니다. 두 가지로 구조화했다.
+      1. 판정 불가면 `tag` 를 버린다. `DSI n/a` 인 줄에 '플래그도 n/a' 는 중복이고, 가장 긴
+         조합(head 47자 + tag 22자)이 정확히 그 경우였다. 조합 최악 168 -> 146자.
+      2. 그 위에 `MAX_TITLE_COLS` 하드 클램프. 오늘 분포에서는 발동하지 않지만 상한을
+         **구조적으로** 보장한다. 발동하면 설계가 바뀌었다는 신호다.
     """
     c, p = rec["calib"], rec["pose"]
+    if not rec["valid"]:
+        tag = ""          # 'DSI n/a' 인 줄에 sight_flag 태그는 중복이다 (docstring 1.)
     if rec["valid"]:
         head = f"DSI {rec['dsi_raw']:.3f}"
     elif not rec["calib_valid"]:
@@ -785,18 +858,21 @@ def suptitle_for(rec, pano, tag=""):
 
     sm, worst = c["seam_max"], c.get("seam_worst")
     seam_txt = "n/a" if sm is None else f"{sm:.3f}" + (f" @{worst}" if worst else "")
-    return "\n".join([
+    lines = [
         pano,
         f"{head}   |   road occluded {rec['road_occluded_frac']:.1%}"
         f" of {rec['road_span_m']:.0f}m (excluded {rec['road_unknown_frac']:.0%})"
         f"   |   L_vis {rec['l_vis_m']:.1f}m vs D_stop {rec['d_stopping_m']:.1f}m"
         f" [{rec['speed_limit_kmh']:.0f}km/h cls{rec['road_class']}]{tag}",
-        f"quality:  pose fit {p['fit_score']:.2f}"
+        f"pose:     fit {p['fit_score']:.2f}"
         f" (far {_n2(p.get('fit_far'))} fwd {_n2(p.get('fit_fwd'))} bwd {_n2(p.get('fit_bwd'))})"
-        f"  dyaw {p['dyaw_deg']:+.0f}deg  dxy ({p['dx_m']:+.0f},{p['dy_m']:+.0f})m"
-        f"  at-limit {p['clipped']}/3"
-        f"   |   worst seam {seam_txt}   |   ground faces {c['faces300']}/4",
-    ])
+        f"   dyaw {p['dyaw_deg']:+.0f}deg   dxy ({p['dx_m']:+.0f},{p['dy_m']:+.0f})m"
+        f"   at-limit {p['clipped']}/2   off road {rec['cam_off_road_m']:.1f}m",
+        f"calib:    worst seam {seam_txt}   |   ground faces {c['faces300']}/4"
+        f"   |   CONFIDENCE {rec['confidence']}/2",
+    ]
+    return "\n".join(x if len(x) <= MAX_TITLE_COLS
+                     else x[:MAX_TITLE_COLS - 1] + "~" for x in lines)
 
 
 def ray_hits(r_theta):

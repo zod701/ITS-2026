@@ -47,6 +47,16 @@ const LAYOUT_HORIZONTAL_3: BevLayout = {
   shadowVeh: { x: 1202, y: 180, w: 544, h: 544 },
 };
 
+// 가로 3패널, 1728x727 (260819_3~). 패널이 508px 정사각형으로 조금 작아지고 제목이 한 줄
+// 더 내려왔다(패널 상단 188 -> 208). 여백 8px 을 더해 524px 로 잘라낸다.
+const LAYOUT_HORIZONTAL_3_1728: BevLayout = {
+  imageW: 1728,
+  imageH: 727,
+  occupancy: { x: 3, y: 200, w: 524, h: 524 },
+  shadow: { x: 603, y: 200, w: 524, h: 524 },
+  shadowVeh: { x: 1202, y: 200, w: 524, h: 524 },
+};
+
 // 03 을 재실행할 때마다 BEV 이미지와 DSI 값이 한 벌로 갱신되므로, 그 한 벌을 버전으로 묶어
 // 통째로 갈아끼운다 (이미지만 옛 버전인데 색은 새 버전인 상태를 만들지 않기 위해서다).
 //
@@ -60,7 +70,28 @@ const LAYOUT_HORIZONTAL_3: BevLayout = {
 // 실측해 여기 한 항목을 추가한다(첫 항목이 기본값).
 export const DSI_VERSIONS: DsiVersion[] = [
   {
-    // Drive 폴더명은 latest_260819, 로컬 산출물은 output/03_bev3.
+    // Drive 폴더명·로컬 산출물 모두 260819_4 (260819_3 은 웹에 올리지 않았다).
+    // D-24 반영: confidence 0/1/2 가 추가됐다 — 판정 여부와 무관하고, 낮을수록 위험을
+    // 높게 말하는 경향이 있어 패널에서 DSI 옆에 함께 보여준다.
+    // 렌더가 1728x727 고정으로 돌아왔다(폭 흔들림 해소).
+    id: "260819_4",
+    label: "26.08.19 (4차)",
+    pointTerciles: [1.1501, 1.374],
+    roadTerciles: [1.2434, 1.4091],
+    bevLayout: LAYOUT_HORIZONTAL_3_1728,
+  },
+  {
+    // Drive 폴더명·로컬 산출물 모두 260819_2.
+    // 회전 탐색을 없애고 계통 오차를 상수로 박은 실행이다 (bev_core.YAW_OFFSET = -2.0,
+    // DYAW 후보가 하나뿐). 계측 도메인도 넓어져 차폐율이 260819 보다 올라갔다.
+    id: "260819_2",
+    label: "26.08.19 (2차)",
+    pointTerciles: [1.1501, 1.3735],
+    roadTerciles: [1.2438, 1.4099],
+    bevLayout: LAYOUT_HORIZONTAL_3,
+  },
+  {
+    // Drive 폴더명은 latest_260819, 로컬 산출물은 output/260819.
     // 판정 게이트가 바뀌었다: pose_converged 가 빠지고 on_mapped_road(카메라가 GIS 도로망
     // 위에 있는가)가 들어왔다. 판정 불가 7.6% 중 대부분이 이 사유다.
     id: "260819",

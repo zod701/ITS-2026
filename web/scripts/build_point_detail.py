@@ -23,7 +23,7 @@ point usually hits a bucket the browser already cached.
   seam [left|front, front|right, right|back, back|left]
   sm   calib.seam_rms_rel        f3  ground faces with >=300px   v  valid
   cv   calib_valid   rk  road_known_enough   pc  pose_converged
-  om   on_mapped_road            cof cam_off_road_m
+  om   on_mapped_road            cof cam_off_road_m       cf  confidence (0/1/2)
 
 Fields a run did not record are omitted, so older versions simply show fewer
 rows (the 260818 run has no seam_per / fit_far / clipped / faces300).
@@ -83,6 +83,9 @@ def main():
             # on_mapped_road(+cam_off_road_m) 가 들어왔다. 없는 것은 그냥 빠진다.
             ("v", "valid"), ("cv", "calib_valid"), ("rk", "road_known_enough"),
             ("pc", "pose_converged"), ("om", "on_mapped_road"), ("cof", "cam_off_road_m"),
+            # confidence 는 판정 여부와 무관한 0/1/2 등급이다 (D-24). 판정된 값이라도
+            # 0 이면 위험을 높게 말하는 경향이 있어 함께 보여준다.
+            ("cf", "confidence"),
         ]:
             put(d, key, r.get(src))
         # sight_flag 은 True/False/None 셋이고 None(판정 불가)도 의미가 있어 그대로 넘긴다.

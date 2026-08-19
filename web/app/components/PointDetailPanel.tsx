@@ -15,12 +15,17 @@ interface PointDetail {
   // valid 와 그것을 이루는 게이트. 어느 게이트가 막았는지에 따라 그 줄을 빨갛게 칠한다.
   // 구성은 실행마다 다르다 — 260819 부터 pc 가 빠지고 om(+cof) 이 들어왔다.
   v?: boolean; cv?: boolean; rk?: boolean; pc?: boolean; om?: boolean; cof?: number;
+  cf?: number;   // 신뢰도 0/1/2 — 판정 여부와 무관하다(D-24)
 }
 
 // 조각 번호 = point_id / 이 값 — build_point_detail.py 의 BUCKET_SIZE 와 같아야 한다.
 const DETAIL_BUCKET_SIZE = 1000;
 
 const SEAM_LABELS = ["좌|정", "정|우", "우|후", "후|좌"];
+
+// 신뢰도(0/1/2)는 판정 여부와 무관하지만, 낮을수록 위험을 높게 말하는 경향이 있어(D-24)
+// DSI 옆에 함께 둔다. 색은 지도 등급 팔레트를 그대로 쓴다.
+const CONFIDENCE_COLORS = ["#ef4444", "#eab308", "var(--text-muted)"];
 
 const fmt = (v: number | undefined, digits = 2, unit = "") =>
   v === undefined ? null : `${v.toFixed(digits)}${unit}`;
@@ -236,6 +241,12 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                   "불러오는 중…"
                 ) : (
                   "-"
+                )}
+                {detail?.cf !== undefined && (
+                  <span className="confidence-note" style={{ color: CONFIDENCE_COLORS[detail.cf] }}>
+                    {" "}
+                    신뢰도 {detail.cf}/2
+                  </span>
                 )}
               </dd>
             </div>
@@ -563,6 +574,10 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
         }
         .metric-sub {
           color: var(--text-muted);
+        }
+        .confidence-note {
+          font-size: 12px;
+          white-space: nowrap;
         }
         /* 판정 불가를 만든 지표. 상위 dd 에 걸어 그 줄의 보조 문구까지 함께 빨개진다. */
         .metric-cause,
