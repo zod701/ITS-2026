@@ -12,3 +12,5 @@ output/
 
 rclone_log.txt
 GIS/historical_panoids.csv
+# 지점 상세 조각은 Drive 에 올리고 detail_map_<버전>.json 만 커밋한다 (버전당 12MB)
+web/public/data/point_detail_*/

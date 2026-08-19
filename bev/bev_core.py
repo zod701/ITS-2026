@@ -59,12 +59,38 @@ CAM_HEIGHT_DEFAULT = 2.5
 GROUND_PX_MIN = 300      # 한 면이 '지면을 봤다'고 인정하는 최소 픽셀 수
 FACES_MIN_VALID = 2      # 이 미만이면 보정이 식별되지 않는다 -> 값을 내지 않는다 (D-14)
 ROAD_UNKNOWN_MAX = 0.5   # 차량 뒤라 모르는 도로가 이 비율을 넘으면 판정하지 않는다 (D-15)
-POSE_CLIP_MAX = 1        # 탐색 한계에 붙은 pose 파라미터가 이 개수를 넘으면 판정 안 함 (D-16)
+ON_ROAD_MAX = 2.0        # 카메라가 실폭도로 폴리곤에서 이만큼 넘게 벗어나면 판정하지 않는다 (D-19).
+                         # 옛 기준(탐색 한계에 붙은 pose 개수 >= 2, D-16)은 within-edge 판별력이
+                         # 정확히 0 이었다: 이탈도 차 +0.005 +- 0.002 로 무작위 50% 대조군(-0.002)
+                         # 과 구분되지 않는다. 새 창에서는 29.7% 를 걸러내면서 아무것도 못 잡는다.
+                         # 폴리곤 밖 거리는 +0.028 +- 0.006 (t=4.3) 이고 이미지 없이 GIS 만으로
+                         # 계산된다. (X-25)
 
-# pose 정합 탐색 (경계 걸림 0%/6% 확인된 범위)
-DYAW = np.arange(-24.0, 24.1, 2.0)
-DXY = np.arange(-8.0, 8.1, 1.0)
+# ── pose 정합 탐색 ────────────────────────────────────────────────
+# 창 크기의 근거 (X-24):
+#   방위각 메타데이터(camera_angle[1])는 실측 정확도가 로버스트 sigma 0.43deg 다
+#   (주행 방위각 대비, 직진 18,022쌍). 옛 창 +-24deg 는 그 56sigma 로 근거가 없었다.
+#   |dyaw| 가 20~25deg 인 장의 메타 잔차도 0.5deg 라, 큰 회전은 전부 정합 인공물이다.
+#   이동도 +-8m 는 <=20m 겹침에 과적합했다: 창을 +-3m 로 줄이면 적합에 쓴 근거리
+#   포함률은 0.837 -> 0.819 로 나빠지지만 쓰지 않은 20~40m 는 0.585 -> 0.595 로 좋아진다.
+YAW_OFFSET = -2.0        # 사진 도로면과 GIS 사이의 계통 회전 (X-24).
+                         # 0.25deg 격자 실측 중앙 -2.00deg, 촬영 세션 간 산포 0.56deg 로 상수다.
+                         # 네이버 궤적 <-> GIS 중심선은 +0.004deg 로 정렬돼 있으므로 데이터가
+                         # 아니라 우리 재구성 쪽 오프셋이다. 원리가 다른 두 추정기(도로면 PCA
+                         # -2.28deg, 방사 프로파일 -1.50deg)도 같은 값을 내 교차검증됐다 (X-26).
+                         # 파노라마당 잡음은 sigma 4.08deg 로 메타 오차의 10배다.
+# 회전은 **탐색하지 않는다** (D-21). 잔여 회전(GIS 도로 축 대비 사진 도로 중심선의 기울기)으로
+# 재면 탐색이 오히려 나쁘다: 주행 방위각 기준 |잔여회전| 중앙 1.96deg -> 1.77deg, >2deg 49.3% ->
+# 44.0% (Wilcoxon p=0.0014). 탐색이 -2 에 머문 장은 1.31deg 인데 +-2deg 벗어난 장은 2.6~2.8deg 로
+# 대칭적으로 나빠진다 -- 겹침 최대화가 이동·형상 오차를 회전 자유도로 흡수하고 있었다.
+# fit_far 손해 -0.0023 은 유의하지 않다(p=0.2). 부수 효과로 FFT 가 5회 -> 1회.
+DYAW = np.array([YAW_OFFSET])                  # 상수. 메타데이터 방위각 + YAW_OFFSET
+DXY = np.arange(-3.0, 3.1, 1.0)                 # -3 .. +3
 PEN_YAW, PEN_XY = 0.03, 0.04      # 동점일 때 작은 보정을 고르는 약한 사전분포
+                                  # (PEN_YAW 는 D-21 이후 항상 0 -- 회전 후보가 하나뿐)
+# 페널티 척도는 창과 분리한다. 창으로 정규화하면 창을 줄일 때 도/미터당 페널티가 같이
+# 세져(24->4 이면 36배) 창 변경의 순효과를 알 수 없다. 부록 A 의 PEN_XY 결함과 같은 결합이다.
+PEN_YAW_REF, PEN_XY_REF = 24.0, 8.0
 POSE_RES = 0.5
 POSE_MARGIN = 16.0
 EPSG = 5179
@@ -295,14 +321,13 @@ def fit_breakdown(mask, half, n, gx, gy, bearing, dyaw=0.0, dx=0.0, dy=0.0):
 
 
 def pose_clipped(dyaw, dx, dy):
-    """탐색 한계에 붙은 pose 파라미터 개수 (0~3).
+    """탐색 한계에 붙은 pose 파라미터 개수 (0~2). 회전은 탐색하지 않으므로 이동만 센다 (D-21).
 
     한계에 붙었다는 것은 최적점이 창 밖이거나 애초에 뚜렷한 최적점이 없다는 뜻이다
     (X-07: 창을 넓혀도 93%는 해가 안 움직이고 한계 사례는 오히려 악화가 더 잦았다).
     실측 within-edge 초과 차폐: 1개 +0.078 / 2개 +0.108 / 3개 +0.187. (D-16)
     """
-    return (int(abs(dx) >= DXY.max()) + int(abs(dy) >= DXY.max())
-            + int(abs(dyaw) >= DYAW.max()))
+    return int(abs(dx) >= DXY.max()) + int(abs(dy) >= DXY.max())
 
 
 def faces_with_ground(cal):
@@ -420,12 +445,24 @@ def shadow_area(r_theta):
 
 
 def l_vis(r_theta, half_deg=10.0):
-    """(전방, 후방, 평균). DSI 는 평균을 쓴다 - 촬영차가 어느 쪽을 보고 지나갔는지에
-    대표 위험도가 의존하면 안 되기 때문."""
+    """(전방, 후방, min). 정지시거는 두 방향 중 **나쁜 쪽**으로 판단한다.
+
+    셔틀은 이 링크를 양방향 중 어느 쪽으로도 지날 수 있다. 한 방향이라도 D_stop 을 못 채우면
+    그 주행 방향에서는 멈출 수 없으므로, 링크 단위 경보는 min 이어야 한다. 평균은 막힌 쪽을
+    가린다 -- 실측상 뒤집히는 1,578장(4.34%)의 전/후방 차이가 중앙 23.0m 로, 평균 24.9m 가
+    "안전"이라 말하던 것을 min 11.8m 가 잡는다 (D_stop 중앙 13.4m).
+
+    옛 평균의 근거는 "촬영차가 어느 쪽을 보고 지나갔는지에 대표 위험도가 의존하면 안 된다"
+    였는데, min 도 앞뒤 교환에 불변이므로 그 요구를 똑같이 만족한다. 평균을 지지하던 또
+    하나의 근거(0/180 모호성)는 방위각 검증으로 소멸했다 -- 모호성 자체가 없다. (D-20/X-24)
+
+    D-17 구간 판정의 전제는 보존된다: r_veh <= r_occ 가 방향별로 성립하므로 min 을 취해도
+    L_vis_veh <= L_vis 다 (36,339장 전량에서 위반 0건).
+    """
     ang = np.arange(N_BINS) * 360.0 / N_BINS
     f = float(np.median(r_theta[(ang <= half_deg) | (ang >= 360 - half_deg)]))
     b = float(np.median(r_theta[np.abs(ang - 180.0) <= half_deg]))
-    return f, b, 0.5 * (f + b)
+    return f, b, min(f, b)
 
 
 def vehicle_blocked_frac(r_occ, r_veh, half_deg=10.0):
@@ -503,6 +540,21 @@ class RoadNet:
         XX, YY = np.meshgrid(gx, gy)
         return contains_xy(poly, XX.ravel(), YY.ravel()).reshape(n, n), half, n
 
+    def dist_to_surface(self, cam, cap=20.0):
+        """카메라에서 가장 가까운 실폭도로 폴리곤까지 거리 (안이면 0, cap 에서 절단).
+
+        '이 지점이 우리가 가진 도로 지도 위에 있는가'를 이미지 없이 답한다.
+        실측: 정상군은 91.4% 가 폴리곤 안이고, 정합 전 겹침이 0.1 미만인 집단은 9.5% 뿐이다.
+        좁은 골목은 폴리곤이 가늘어도 카메라가 그 안에 있으므로 도로 폭과 혼동되지 않는다.
+        """
+        from shapely.geometry import Point
+
+        p = Point(cam)
+        idx = self.stree.query(p.buffer(cap))
+        if len(idx) == 0:
+            return cap
+        return float(min(self.surf.geometry.values[j].distance(p) for j in idx))
+
     def reachable(self, cam, cap=R_MAX):
         """카메라 최근접 정점에서 도로를 따라 cap 이내인 링크 [(midx, midy, len)]."""
         src = int(self.tree.query(cam)[1])
@@ -571,7 +623,7 @@ def refine_pose(mask, half, n, x, y, bearing):
         # corr[n-1+sr, n-1+sc] = sum_rc A[r,c] * M[r+sr, c+sc]
         corr = fftconvolve(M, A[::-1, ::-1], mode="full")
         denom = float(A.sum())
-        pen_yaw = PEN_YAW * (dyaw / DYAW.max()) ** 2
+        pen_yaw = PEN_YAW * ((dyaw - YAW_OFFSET) / PEN_YAW_REF) ** 2
         for dx in DXY:
             sc = int(round(dx / POSE_RES))
             for dy in DXY:
@@ -580,7 +632,7 @@ def refine_pose(mask, half, n, x, y, bearing):
                      # dx^2+dy^2 의 최대는 모서리에서 2*DXY.max()^2 다. DXY.max()^2 로
                      # 나누면 모서리 페널티가 PEN_XY 의 2배가 되어 대각 보정만 부당하게
                      # 불리해진다(등방이어야 한다). 정규화를 최대값으로 맞춘다.
-                     - PEN_XY * ((dx ** 2 + dy ** 2) / (2 * DXY.max() ** 2)))
+                     - PEN_XY * ((dx ** 2 + dy ** 2) / (2 * PEN_XY_REF ** 2)))
                 if s > best[0]:
                     best = (float(s), float(dyaw), float(dx), float(dy))
     return best
@@ -726,8 +778,8 @@ def suptitle_for(rec, pano, tag=""):
         head = f"DSI {rec['dsi_raw']:.3f}"
     elif not rec["calib_valid"]:
         head = f"DSI n/a - calibration failed (ground faces {c['faces300']}/4)"
-    elif not rec["pose_converged"]:
-        head = f"DSI n/a - pose not converged (at search limit {p['clipped']}/3)"
+    elif not rec["on_mapped_road"]:
+        head = f"DSI n/a - camera {rec['cam_off_road_m']:.1f}m off mapped road"
     else:
         head = f"DSI n/a - {rec['road_unknown_frac']:.0%} of road behind vehicles"
 

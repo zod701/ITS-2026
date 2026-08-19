@@ -80,11 +80,12 @@ function isDarkTheme(): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-const LIGHT_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+// 배경지도는 두 테마 모두 CARTO 무채색 타일을 쓴다. 기본 OSM 타일은 산이 초록, 물이 파랑,
+// 건물이 분홍이라 그 위에 얹는 DSI 등급색(초록·노랑·빨강)과 버스 노선색이 배경과 섞여 읽히지
+// 않았다. 배경에서 색을 빼면 화면의 색은 전부 지표를 뜻하게 된다.
+const LIGHT_TILE_URL = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
 const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-const LIGHT_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-const DARK_ATTRIBUTION =
+const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 function nearestPoint(
@@ -265,7 +266,7 @@ export default function MapView({
     // MutationObserver로 감지해 타일 레이어를 즉시 교체한다.
     let currentDark = isDarkTheme();
     let tileLayer = L.tileLayer(currentDark ? DARK_TILE_URL : LIGHT_TILE_URL, {
-      attribution: currentDark ? DARK_ATTRIBUTION : LIGHT_ATTRIBUTION,
+      attribution: TILE_ATTRIBUTION,
       maxZoom: 19,
     }).addTo(map);
 
@@ -275,7 +276,7 @@ export default function MapView({
       currentDark = dark;
       map.removeLayer(tileLayer);
       tileLayer = L.tileLayer(dark ? DARK_TILE_URL : LIGHT_TILE_URL, {
-        attribution: dark ? DARK_ATTRIBUTION : LIGHT_ATTRIBUTION,
+        attribution: TILE_ATTRIBUTION,
         maxZoom: 19,
       }).addTo(map);
     });

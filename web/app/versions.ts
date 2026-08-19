@@ -60,7 +60,18 @@ const LAYOUT_HORIZONTAL_3: BevLayout = {
 // 실측해 여기 한 항목을 추가한다(첫 항목이 기본값).
 export const DSI_VERSIONS: DsiVersion[] = [
   {
-    // Drive 폴더명은 latest_260818_2, 로컬 산출물은 output/260818_2.
+    // Drive 폴더명은 latest_260819, 로컬 산출물은 output/03_bev3.
+    // 판정 게이트가 바뀌었다: pose_converged 가 빠지고 on_mapped_road(카메라가 GIS 도로망
+    // 위에 있는가)가 들어왔다. 판정 불가 7.6% 중 대부분이 이 사유다.
+    id: "260819",
+    label: "26.08.19",
+    // 최소값(= 차폐 0) 쏠림 52.0%. 기계적 tercile 은 이번에도 불가능하다.
+    pointTerciles: [1.1501, 1.3711],
+    roadTerciles: [1.243, 1.4066],
+    bevLayout: LAYOUT_HORIZONTAL_3,
+  },
+  {
+    // Drive 폴더명은 260818_2(옛 이름 latest_260818_2), 로컬 산출물은 output/260818_2.
     // 03 재설계(도로 폴리곤 겹쳐 그리기·가로 3패널·판정 불가 표시)가 처음 반영된 실행이다.
     id: "260818_2",
     label: "26.08.18 (2차)",

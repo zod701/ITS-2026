@@ -22,6 +22,8 @@ point usually hits a bucket the browser already cached.
   dyaw pose.dyaw_deg             dx/dy  pose.dx_m / dy_m  cl  pose.clipped
   seam [left|front, front|right, right|back, back|left]
   sm   calib.seam_rms_rel        f3  ground faces with >=300px   v  valid
+  cv   calib_valid   rk  road_known_enough   pc  pose_converged
+  om   on_mapped_road            cof cam_off_road_m
 
 Fields a run did not record are omitted, so older versions simply show fewer
 rows (the 260818 run has no seam_per / fit_far / clipped / faces300).
@@ -76,7 +78,11 @@ def main():
             ("rs", "road_span_m"), ("ru", "road_unknown_frac"),
             ("lv", "l_vis_m"), ("lf", "l_vis_fwd_m"), ("lb", "l_vis_bwd_m"),
             ("ds", "d_stopping_m"), ("sl", "speed_limit_kmh"), ("rc", "road_class"),
-            ("v", "valid"),
+            # valid 와 그것을 이루는 게이트들. 웹이 판정 불가의 "원인이 된 줄"을 빨갛게 칠한다.
+            # 게이트 구성은 실행마다 다르다 — 260819 부터 pose_converged 가 빠지고
+            # on_mapped_road(+cam_off_road_m) 가 들어왔다. 없는 것은 그냥 빠진다.
+            ("v", "valid"), ("cv", "calib_valid"), ("rk", "road_known_enough"),
+            ("pc", "pose_converged"), ("om", "on_mapped_road"), ("cof", "cam_off_road_m"),
         ]:
             put(d, key, r.get(src))
         # sight_flag 은 True/False/None 셋이고 None(판정 불가)도 의미가 있어 그대로 넘긴다.

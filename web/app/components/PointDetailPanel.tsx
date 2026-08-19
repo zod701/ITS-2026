@@ -12,10 +12,12 @@ interface PointDetail {
   pf?: number; pfar?: number; pfwd?: number; pbwd?: number;    // 정합
   dyaw?: number; dx?: number; dy?: number; cl?: number;
   sm?: number; seam?: (number | null)[]; f3?: number;          // 보정
-  v?: boolean;
+  // valid 와 그것을 이루는 게이트. 어느 게이트가 막았는지에 따라 그 줄을 빨갛게 칠한다.
+  // 구성은 실행마다 다르다 — 260819 부터 pc 가 빠지고 om(+cof) 이 들어왔다.
+  v?: boolean; cv?: boolean; rk?: boolean; pc?: boolean; om?: boolean; cof?: number;
 }
 
-// point_detail_<version>/<bucket>.json — build_point_detail.py 의 BUCKET_SIZE 와 같아야 한다.
+// 조각 번호 = point_id / 이 값 — build_point_detail.py 의 BUCKET_SIZE 와 같아야 한다.
 const DETAIL_BUCKET_SIZE = 1000;
 
 const SEAM_LABELS = ["좌|정", "정|우", "우|후", "후|좌"];
@@ -122,13 +124,14 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
     };
   }, [version, dsiMaps]);
 
-  // 지점 상세는 전량이 10MB대라 point_id 구간 단위로 쪼개 필요한 조각만 받는다.
-  // 상세를 만들지 않은 버전(260811)은 404 가 나므로 빈 객체로 두고 절 자체를 숨긴다.
+  // 지점 상세는 전량이 버전당 12MB라 저장소에 두지 않고 BEV 이미지와 같은 Drive 폴더에
+  // 둔다. /api/point-detail 이 조각 하나만 서버에서 받아 CDN 캐시로 넘겨준다.
+  // 상세를 올리지 않은 버전(260811 등)은 404 가 나므로 빈 객체로 두고 절 자체를 숨긴다.
   const detailBucket = `${version}/${Math.floor(Number(point.pointId) / DETAIL_BUCKET_SIZE)}`;
   useEffect(() => {
     if (detailBuckets[detailBucket]) return;
     let cancelled = false;
-    fetch(`/data/point_detail_${detailBucket}.json`)
+    fetch(`/api/point-detail/${detailBucket}`)
       .then((res) => (res.ok ? res.json() : {}))
       .then((map) => {
         if (!cancelled) setDetailBuckets((prev) => ({ ...prev, [detailBucket]: map }));
@@ -213,7 +216,11 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
             <div className="meta-item">
               <dt>DSI</dt>
               <dd>
-                {dsiRecord ? (
+                {/* 판정 불가면 dsi_map 에 값이 아예 없다. 빈칸 대신 여기서 알리고,
+                    원인이 된 지표 줄은 아래에서 빨갛게 표시된다. */}
+                {detail?.v === false ? (
+                  <span className="dsi-grade-badge invalid-badge">판정 불가</span>
+                ) : dsiRecord ? (
                   <>
                     {dsiRecord.dsi.toFixed(2)}{" "}
                     <span
@@ -273,7 +280,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                 <div className="metric-heading">계측</div>
                 <div className="metric-row">
                   <dt>도로 차폐</dt>
-                  <dd>
+                  <dd className={detail.rk === false ? "metric-cause" : undefined}>
                     {detail.ro === undefined ? "-" : `${(detail.ro * 100).toFixed(1)}%`}
                     {detail.rm !== undefined && detail.rs !== undefined && (
                       <span className="metric-sub">
@@ -282,7 +289,11 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                       </span>
                     )}
                     {detail.ru !== undefined && (
-                      <span className="metric-sub"> · 차량 뒤 제외 {(detail.ru * 100).toFixed(1)}%</span>
+                      <span className="metric-sub">
+                        {" "}
+                        · 차량 뒤 제외 {(detail.ru * 100).toFixed(1)}%
+                        {detail.rk === false && " (절반 초과)"}
+                      </span>
                     )}
                   </dd>
                 </div>
@@ -330,7 +341,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                 </div>
                 <div className="metric-row">
                   <dt>보정량</dt>
-                  <dd>
+                  <dd className={detail.pc === false ? "metric-cause" : undefined}>
                     {detail.dyaw === undefined ? "-" : `dyaw ${detail.dyaw > 0 ? "+" : ""}${detail.dyaw}°`}
                     {detail.dx !== undefined && detail.dy !== undefined && (
                       <span className="metric-sub">
@@ -341,10 +352,26 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                       </span>
                     )}
                     {detail.cl !== undefined && (
-                      <span className="metric-sub"> · 탐색 한계 {detail.cl}/3</span>
+                      <span className="metric-sub">
+                        {" "}
+                        · 탐색 한계 {detail.cl}/3{detail.pc === false && " (정합 미수렴)"}
+                      </span>
                     )}
                   </dd>
                 </div>
+                {/* 260819 부터의 게이트: 카메라가 GIS 도로망 위에 있는가. 이 실행에서 판정
+                    불가의 대부분이 여기서 걸린다(도로망에 없는 길에서 찍힌 파노라마). */}
+                {detail.om !== undefined && (
+                  <div className="metric-row">
+                    <dt>도로망 위</dt>
+                    <dd className={detail.om === false ? "metric-cause" : undefined}>
+                      {detail.om ? "예" : "아니오"}
+                      {detail.cof !== undefined && (
+                        <span className="metric-sub"> · 도로에서 {detail.cof.toFixed(1)}m</span>
+                      )}
+                    </dd>
+                  </div>
+                )}
               </div>
 
               <div className="metric-group">
@@ -370,10 +397,10 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                 </div>
                 <div className="metric-row">
                   <dt>지면 보이는 면</dt>
-                  <dd>
+                  <dd className={detail.cv === false ? "metric-cause" : undefined}>
                     {detail.f3 === undefined ? "-" : `${detail.f3} / 4`}
-                    {detail.v !== undefined && (
-                      <span className="metric-sub"> · {detail.v ? "판정 가능" : "판정 불가"}</span>
+                    {detail.cv === false && (
+                      <span className="metric-sub"> · 2면 미만이라 보정 불성립</span>
                     )}
                   </dd>
                 </div>
@@ -536,6 +563,14 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
         }
         .metric-sub {
           color: var(--text-muted);
+        }
+        /* 판정 불가를 만든 지표. 상위 dd 에 걸어 그 줄의 보조 문구까지 함께 빨개진다. */
+        .metric-cause,
+        .metric-cause .metric-sub {
+          color: #ef4444;
+        }
+        .invalid-badge {
+          background: #ef4444;
         }
         .seam-list {
           display: inline-flex;
