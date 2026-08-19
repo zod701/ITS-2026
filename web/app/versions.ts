@@ -24,6 +24,12 @@ export interface DsiVersion {
   pointTerciles: [number, number];
   /** 도로(edge) 평균 DSI 분포의 등급 경계 (지도 선 색상) */
   roadTerciles: [number, number];
+  /**
+   * `clipped`(탐색 한계에 붙은 pose 축의 개수)의 분모.
+   * 260819_2 부터 회전을 상수로 고정해 이동 2축만 세므로 2 다 (method.md D-21).
+   * 그 전 판은 회전까지 탐색해 3축이었다.
+   */
+  poseAxes: 2 | 3;
   bevLayout: BevLayout;
 }
 
@@ -78,6 +84,7 @@ export const DSI_VERSIONS: DsiVersion[] = [
     label: "26.08.19 (4차)",
     pointTerciles: [1.1501, 1.374],
     roadTerciles: [1.2434, 1.4091],
+    poseAxes: 2,
     bevLayout: LAYOUT_HORIZONTAL_3_1728,
   },
   {
@@ -88,6 +95,7 @@ export const DSI_VERSIONS: DsiVersion[] = [
     label: "26.08.19 (2차)",
     pointTerciles: [1.1501, 1.3735],
     roadTerciles: [1.2438, 1.4099],
+    poseAxes: 2,
     bevLayout: LAYOUT_HORIZONTAL_3,
   },
   {
@@ -99,6 +107,7 @@ export const DSI_VERSIONS: DsiVersion[] = [
     // 최소값(= 차폐 0) 쏠림 52.0%. 기계적 tercile 은 이번에도 불가능하다.
     pointTerciles: [1.1501, 1.3711],
     roadTerciles: [1.243, 1.4066],
+    poseAxes: 3,
     bevLayout: LAYOUT_HORIZONTAL_3,
   },
   {
@@ -109,6 +118,7 @@ export const DSI_VERSIONS: DsiVersion[] = [
     // 최소값 쏠림 49.6% (판정 불가 1,711지점이 빠져 260818 보다 조금 높다)
     pointTerciles: [1.1501, 1.382],
     roadTerciles: [1.2563, 1.4244],
+    poseAxes: 3,
     bevLayout: LAYOUT_HORIZONTAL_3,
   },
   {
@@ -120,6 +130,7 @@ export const DSI_VERSIONS: DsiVersion[] = [
     pointTerciles: [1.1501, 1.4375],
     // 도로는 지점 평균이라 최소값 쏠림이 사라진다 -> tercile 을 그대로 쓴다.
     roadTerciles: [1.2735, 1.4754],
+    poseAxes: 3,
     bevLayout: LAYOUT_VERTICAL_3,
   },
   {
@@ -127,6 +138,7 @@ export const DSI_VERSIONS: DsiVersion[] = [
     label: "26.08.11",
     pointTerciles: [1.92, 3.14],
     roadTerciles: [2.36, 3.57],
+    poseAxes: 3,
     bevLayout: LAYOUT_VERTICAL_3,
   },
 ];

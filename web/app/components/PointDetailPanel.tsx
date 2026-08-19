@@ -27,6 +27,50 @@ const SEAM_LABELS = ["좌|정", "정|우", "우|후", "후|좌"];
 // DSI 옆에 함께 둔다. 색은 지도 등급 팔레트를 그대로 쓴다.
 const CONFIDENCE_COLORS = ["#ef4444", "#eab308", "var(--text-muted)"];
 
+// 실패 방향이 한쪽(과대보고)이라 값을 버리지 않고 등급만 남긴다 — 읽는 사람이 그 방향을
+// 알아야 해석이 되므로 툴팁으로 붙인다. 수치는 method.md D-24 의 실측(33,098장)이다.
+const CONFIDENCE_TIPS = [
+  "신뢰도 낮음 — 값은 쓰되 보수적으로 읽으세요.\n"
+    + "카메라가 도로에서 2m 넘게 벗어났거나, 이음매가 0.30 이상 어긋났거나, 근거리 정합이 "
+    + "0.30 미만인 경우입니다.\n"
+    + "실측상 차폐를 평균 +0.020 과대평가합니다 (전체의 13%).",
+  "신뢰도 보통 — 대체로 신뢰할 수 있습니다.\n"
+    + "카메라가 도로 중심선에서 조금 벗어났거나 이음매 잔차가 0.15 이상입니다.\n"
+    + "실측상 차폐를 평균 +0.005 과대평가합니다 (전체의 28%).",
+  "신뢰도 높음 — 그대로 신뢰할 수 있습니다.\n"
+    + "카메라가 도로 위에 있고 이음매·근거리 정합이 모두 양호합니다 (전체의 58%).",
+];
+
+// 지표 설명. 값이 무엇을 재는지와 어느 쪽이 좋은지를 적는다 — 숫자만 보고는 방향
+// (클수록 나쁨/좋음)을 알 수 없어서다.
+const METRIC_TIPS = {
+  occluded:
+    "40m 이내 도달 가능한 도로 중 시야가 닿지 않는 길이의 비율입니다.\n"
+    + "'차량 뒤 제외'는 차량을 장애물로 인식하지 않았을 때의 차폐율입니다.",
+  lvis:
+    "가시거리로 정면·후면으로 시선이 처음 막히는 거리(둘의 최솟값)입니다. 40m의 계측 상한값을 가집니다.\n"
+    + "정지시거는 도로 유형에 따른 제한속도에서 계산된 반응 1초 + 제동으로 필요한 거리입니다.\n"
+    + "가시거리 < 정지시거 이면 즉시 대응이 불가능한 구간으로 판단합니다.",
+  lvisDir:
+    "전방·후방 각각의 가시거리입니다. 한쪽만 짧으면 교차로·굽은 길처럼 한 방향만 막힌 경우입니다.\n"
+    + "'시야'는 두 값과 정지시거를 비교한 판정이며, 차량 뒤가 불확실하면 '판정 불가'가 됩니다.",
+  fit:
+    "파노라마 사진만으로 복원한 도로면이 GIS 실폭도로와 얼마나 겹치는지를 나타낸 정합 정확도입니다. (0~1, 클수록 좋음)\n",
+  pose:
+    "정합을 맞추려고 카메라 위치·방위를 얼마나 움직였는지를 나타냅니다.\n"
+    + "dyaw 는 회전각(도)으로 -2 상수 고정, dxy 는 평행이동(m)한 거리입니다.\n"
+    + "'탐색 한계'는 보정값이 탐색 범위(-3m ~ +3m) 끝에 붙은 개수로, 많으면 정합이 수렴하지 못함을 나타냅니다.",
+  onRoad:
+    "카메라가 GIS 도로망 위에 있는가를 의미합니다. 5m 넘게 벗어나면 무엇을 쟀는지 알 수 없어 판정하지 않습니다.\n"
+    + "사유지·주차장처럼 도로망에 없는 길에서 찍힌 파노라마가 여기서 제외되기 쉽습니다.",
+  seam:
+    "Depth map의 네 방향 사진이 맞닿는 이음매에서 깊이가 어긋난 정도를 의미합니다. (작을수록 좋음)\n"
+    + "하나라도 크면 그 방향의 거리 환산을 믿기 어렵다고 판단합니다. 0.30 이상이면 신뢰도가 낮음으로 내려갑니다.",
+  faces:
+    "네 방향 중 지면이 충분히(300px 이상) 보인 면의 수를 의미합니다.\n"
+    + "거리 환산은 바닥을 기준으로 풀기 때문에, 2면 미만이면 환산이 성립하지 않아 판정 불가가 됩니다.",
+};
+
 const fmt = (v: number | undefined, digits = 2, unit = "") =>
   v === undefined ? null : `${v.toFixed(digits)}${unit}`;
 
@@ -64,6 +108,26 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
   const [detailBuckets, setDetailBuckets] = useState<Record<string, Record<string, PointDetail>>>(
     {}
   );
+  // 브라우저 기본 툴팁 대신 직접 그린다. 패널과 메타 칸이 모두 overflow:auto 라 absolute 로
+  // 띄우면 잘리므로, 화면 좌표에 fixed 로 띄우고 위치는 트리거의 사각형에서 계산한다.
+  const [tip, setTip] = useState<{ text: string; x: number; y: number; above: boolean } | null>(
+    null
+  );
+  const showTip = (e: React.MouseEvent | React.FocusEvent, text: string) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    // 아래 공간이 모자라면 위로 띄운다.
+    const above = window.innerHeight - r.bottom < 160;
+    setTip({ text, x: Math.min(r.left, window.innerWidth - 336), y: above ? r.top : r.bottom, above });
+  };
+  const tipProps = (text: string) => ({
+    className: "has-tip",
+    tabIndex: 0,
+    onMouseEnter: (e: React.MouseEvent) => showTip(e, text),
+    onFocus: (e: React.FocusEvent) => showTip(e, text),
+    onMouseLeave: () => setTip(null),
+    onBlur: () => setTip(null),
+  });
+
   const [linkCopied, setLinkCopied] = useState(false);
   const [panoIdCopied, setPanoIdCopied] = useState(false);
 
@@ -187,7 +251,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
   // dsi_map_*.json에 저장된 grade(구 임계값 Safe<1.0/Caution<1.8 기준)는 매칭 테이블
   // 원본 그대로 두고, 배지 표시에는 지점 단위 DSI 분포의 경계값을 쓴다. 지도 도로 색상
   // (MapView.tsx)의 도로 단위 경계값과는 분포가 달라 버전마다 값이 따로 있다(versions.ts).
-  const { pointTerciles, bevLayout } = versionById(version);
+  const { pointTerciles, bevLayout, poseAxes } = versionById(version);
   const detail = detailBuckets[detailBucket]?.[key];
 
   const handleCopyLink = async () => {
@@ -243,7 +307,11 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                   "-"
                 )}
                 {detail?.cf !== undefined && (
-                  <span className="confidence-note" style={{ color: CONFIDENCE_COLORS[detail.cf] }}>
+                  <span
+                    {...tipProps(CONFIDENCE_TIPS[detail.cf])}
+                    className="confidence-note has-tip"
+                    style={{ color: CONFIDENCE_COLORS[detail.cf] }}
+                  >
                     {" "}
                     신뢰도 {detail.cf}/2
                   </span>
@@ -290,7 +358,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
               <div className="metric-group">
                 <div className="metric-heading">계측</div>
                 <div className="metric-row">
-                  <dt>도로 차폐</dt>
+                  <dt {...tipProps(METRIC_TIPS.occluded)}>도로 차폐</dt>
                   <dd className={detail.rk === false ? "metric-cause" : undefined}>
                     {detail.ro === undefined ? "-" : `${(detail.ro * 100).toFixed(1)}%`}
                     {detail.rm !== undefined && detail.rs !== undefined && (
@@ -309,7 +377,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                   </dd>
                 </div>
                 <div className="metric-row">
-                  <dt>가시거리</dt>
+                  <dt {...tipProps(METRIC_TIPS.lvis)}>가시거리</dt>
                   <dd>
                     {fmt(detail.lv, 1, "m") ?? "-"}
                     <span className="metric-sub">
@@ -322,7 +390,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                 </div>
                 {(detail.lf !== undefined || detail.lb !== undefined) && (
                   <div className="metric-row">
-                    <dt>전방 / 후방</dt>
+                    <dt {...tipProps(METRIC_TIPS.lvisDir)}>전방 / 후방</dt>
                     <dd>
                       {fmt(detail.lf, 1, "m") ?? "-"} / {fmt(detail.lb, 1, "m") ?? "-"}
                       {detail.sf !== undefined && (
@@ -339,7 +407,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
               <div className="metric-group">
                 <div className="metric-heading">도로망 정합</div>
                 <div className="metric-row">
-                  <dt>fit</dt>
+                  <dt {...tipProps(METRIC_TIPS.fit)}>fit</dt>
                   <dd>
                     {fmt(detail.pf) ?? "-"}
                     {detail.pfar !== undefined && (
@@ -351,7 +419,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                   </dd>
                 </div>
                 <div className="metric-row">
-                  <dt>보정량</dt>
+                  <dt {...tipProps(METRIC_TIPS.pose)}>보정량</dt>
                   <dd className={detail.pc === false ? "metric-cause" : undefined}>
                     {detail.dyaw === undefined ? "-" : `dyaw ${detail.dyaw > 0 ? "+" : ""}${detail.dyaw}°`}
                     {detail.dx !== undefined && detail.dy !== undefined && (
@@ -365,7 +433,8 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                     {detail.cl !== undefined && (
                       <span className="metric-sub">
                         {" "}
-                        · 탐색 한계 {detail.cl}/3{detail.pc === false && " (정합 미수렴)"}
+                        · 탐색 한계 {detail.cl}/{poseAxes}
+                        {detail.pc === false && " (정합 미수렴)"}
                       </span>
                     )}
                   </dd>
@@ -374,7 +443,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                     불가의 대부분이 여기서 걸린다(도로망에 없는 길에서 찍힌 파노라마). */}
                 {detail.om !== undefined && (
                   <div className="metric-row">
-                    <dt>도로망 위</dt>
+                    <dt {...tipProps(METRIC_TIPS.onRoad)}>도로망 위</dt>
                     <dd className={detail.om === false ? "metric-cause" : undefined}>
                       {detail.om ? "예" : "아니오"}
                       {detail.cof !== undefined && (
@@ -388,7 +457,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
               <div className="metric-group">
                 <div className="metric-heading">보정 품질</div>
                 <div className="metric-row">
-                  <dt>이음매</dt>
+                  <dt {...tipProps(METRIC_TIPS.seam)}>이음매</dt>
                   <dd>
                     {detail.seam ? (
                       <span className="seam-list">
@@ -407,7 +476,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                   </dd>
                 </div>
                 <div className="metric-row">
-                  <dt>지면 보이는 면</dt>
+                  <dt {...tipProps(METRIC_TIPS.faces)}>지면 보이는 면</dt>
                   <dd className={detail.cv === false ? "metric-cause" : undefined}>
                     {detail.f3 === undefined ? "-" : `${detail.f3} / 4`}
                     {detail.cv === false && (
@@ -496,6 +565,16 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
         </div>
       </div>
 
+      {tip && (
+        <div
+          className={`tooltip ${tip.above ? "tooltip-above" : ""}`}
+          style={{ left: tip.x, top: tip.y }}
+          role="tooltip"
+        >
+          {tip.text}
+        </div>
+      )}
+
       <style jsx>{`
         .detail-panel {
           position: absolute;
@@ -578,6 +657,40 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
         .confidence-note {
           font-size: 12px;
           white-space: nowrap;
+        }
+        /* 설명이 붙어 있다는 신호. 점선 밑줄은 툴팁의 관습적 표시다. */
+        .has-tip {
+          text-decoration: underline dotted;
+          text-underline-offset: 3px;
+          text-decoration-thickness: 1px;
+          cursor: help;
+        }
+        .has-tip:focus-visible {
+          outline: 2px solid var(--link-color);
+          outline-offset: 2px;
+        }
+        .tooltip {
+          position: fixed;
+          z-index: 1100;
+          max-width: 320px;
+          padding: 8px 10px;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          background: var(--panel-bg);
+          color: var(--foreground);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+          font-size: 12px;
+          line-height: 1.6;
+          /* 툴팁 문구의 줄바꿈(
+)을 그대로 살린다. */
+          white-space: pre-line;
+          word-break: keep-all;
+          /* 커서가 툴팁에 얹혀 깜빡이지 않게 한다. */
+          pointer-events: none;
+          transform: translateY(8px);
+        }
+        .tooltip-above {
+          transform: translateY(calc(-100% - 8px));
         }
         /* 판정 불가를 만든 지표. 상위 dd 에 걸어 그 줄의 보조 문구까지 함께 빨개진다. */
         .metric-cause,
