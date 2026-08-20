@@ -7,6 +7,7 @@ import { gradeFromDsi, versionById, type BevCrop, type BevLayout } from "../vers
 // build_point_detail.py 가 쓰는 축약 키. 실행마다 기록한 필드가 달라 전부 optional 이다.
 interface PointDetail {
   ro?: number; rm?: number; rs?: number; ru?: number;          // 도로 차폐
+  rma?: number; rda?: number;                                  // D-06 이후: 길이 대신 면적
   lv?: number; lf?: number; lb?: number; ds?: number;          // 가시거리 · 정지시거
   sl?: number; rc?: string; sf?: boolean | null;
   pf?: number; pfar?: number; pfwd?: number; pbwd?: number;    // 정합
@@ -361,12 +362,19 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                   <dt {...tipProps(METRIC_TIPS.occluded)}>도로 차폐</dt>
                   <dd className={detail.rk === false ? "metric-cause" : undefined}>
                     {detail.ro === undefined ? "-" : `${(detail.ro * 100).toFixed(1)}%`}
-                    {detail.rm !== undefined && detail.rs !== undefined && (
+                    {/* D-06 으로 도메인이 중심선 길이(rs/rm) -> 도로면 면적(rda/rma)
+                        으로 바뀌었다. 옛 판도 계속 서빙하므로 있는 쪽을 쓴다. */}
+                    {detail.rda !== undefined && detail.rma !== undefined ? (
+                      <span className="metric-sub">
+                        {" "}
+                        {detail.rda.toFixed(0)}m² 중 {detail.rma.toFixed(0)}m²
+                      </span>
+                    ) : detail.rm !== undefined && detail.rs !== undefined ? (
                       <span className="metric-sub">
                         {" "}
                         {detail.rs.toFixed(0)}m 중 {detail.rm.toFixed(0)}m
                       </span>
-                    )}
+                    ) : null}
                     {detail.ru !== undefined && (
                       <span className="metric-sub">
                         {" "}

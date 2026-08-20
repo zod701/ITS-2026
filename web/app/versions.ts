@@ -76,6 +76,18 @@ const LAYOUT_HORIZONTAL_3_1728: BevLayout = {
 // 실측해 여기 한 항목을 추가한다(첫 항목이 기본값).
 export const DSI_VERSIONS: DsiVersion[] = [
   {
+    // Drive 폴더명·로컬 산출물 모두 260820.
+    // D-06 으로 차폐 도메인이 중심선 길이(m) -> 도로면 면적(m2) 으로 바뀌었다. 그 결과
+    // 차폐 0 인 지점이 52% -> 6.7% 로 줄어, D-11 이 기계적 tercile 을 포기했던 이유
+    // (quantile(1/3) 이 최소값과 같아짐)가 사라졌다. 이 버전부터는 tercile 을 그대로 쓴다.
+    id: "260820",
+    label: "26.08.20",
+    pointTerciles: [1.1873, 1.392],
+    roadTerciles: [1.3149, 1.5206],
+    poseAxes: 2,
+    bevLayout: LAYOUT_HORIZONTAL_3_1728,
+  },
+  {
     // Drive 폴더명·로컬 산출물 모두 260819_4 (260819_3 은 웹에 올리지 않았다).
     // D-24 반영: confidence 0/1/2 가 추가됐다 — 판정 여부와 무관하고, 낮을수록 위험을
     // 높게 말하는 경향이 있어 패널에서 DSI 옆에 함께 보여준다.

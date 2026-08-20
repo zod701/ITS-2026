@@ -15,6 +15,7 @@ hundred KB, and because point_id runs along the road, panning to a neighbouring
 point usually hits a bucket the browser already cached.
 
   ro   road_occluded_frac        rm  road_occluded_m      rs  road_span_m
+  rma  road_occluded_m2          rda road_domain_m2
   ru   road_unknown_frac         lv  l_vis_m              lf  l_vis_fwd_m
   lb   l_vis_bwd_m               ds  d_stopping_m         sl  speed_limit_kmh
   rc   road_class                sf  sight_flag (true/false/null)
@@ -27,6 +28,9 @@ point usually hits a bucket the browser already cached.
 
 Fields a run did not record are omitted, so older versions simply show fewer
 rows (the 260818 run has no seam_per / fit_far / clipped / faces300).
+The occlusion domain changed with D-06: runs up to 260819_4 measured a length of
+centreline (rm/rs, metres), later runs measure a road-surface area (rma/rda, m2).
+Both are emitted so the panel can pick whichever the run has; they never coexist.
 `f3` is recomputed from calib.n_ground_px so it exists for those runs too.
 
 Usage:
@@ -76,6 +80,7 @@ def main():
         for key, src in [
             ("ro", "road_occluded_frac"), ("rm", "road_occluded_m"),
             ("rs", "road_span_m"), ("ru", "road_unknown_frac"),
+            ("rma", "road_occluded_m2"), ("rda", "road_domain_m2"),
             ("lv", "l_vis_m"), ("lf", "l_vis_fwd_m"), ("lb", "l_vis_bwd_m"),
             ("ds", "d_stopping_m"), ("sl", "speed_limit_kmh"), ("rc", "road_class"),
             # valid 와 그것을 이루는 게이트들. 웹이 판정 불가의 "원인이 된 줄"을 빨갛게 칠한다.

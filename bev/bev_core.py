@@ -60,6 +60,10 @@ CAM_HEIGHT_DEFAULT = 2.5  # **전 파노라마 공통** (D-25). CSV 의 (camera_
 GROUND_PX_MIN = 300      # 한 면이 '지면을 봤다'고 인정하는 최소 픽셀 수
 FACES_MIN_VALID = 2      # 이 미만이면 보정이 식별되지 않는다 -> 값을 내지 않는다 (D-14)
 ROAD_UNKNOWN_MAX = 0.5   # 차량 뒤라 모르는 도로가 이 비율을 넘으면 판정하지 않는다 (D-15)
+MIN_DOMAIN_M2 = 20.0     # 도메인이 이보다 작으면 판정하지 않는다 (0.5m 격자 80칸.
+                         # 카메라가 폴리곤의 고립된 조각 위에 있다는 뜻이다). 실측 도메인
+                         # 면적은 중앙 876 / p10 274 m2 라 정상 장은 걸리지 않는다 (D-06)
+
 ON_ROAD_MAX = 5.0        # 카메라가 실폭도로 폴리곤에서 이만큼 넘게 벗어나면 판정하지 않는다
                          # (D-19 로 도입, D-24 로 2.0 -> 5.0).
                          # 옛 기준(탐색 한계에 붙은 pose 개수 >= 2, D-16)은 within-edge 판별력이
@@ -610,7 +614,11 @@ class RoadNet:
         return float(min(self.surf.geometry.values[j].distance(p) for j in idx))
 
     def reachable(self, cam, cap=R_MAX):
-        """카메라 최근접 정점에서 도로를 따라 cap 이내인 링크 [(midx, midy, len)]."""
+        """카메라 최근접 정점에서 도로를 따라 cap 이내인 링크 [(midx, midy, len)].
+
+        **지표에는 더 이상 쓰지 않는다** — D-06 이 도메인을 중심선에서 도로면으로 바꿨다
+        (`reachable_surface`). 옛 1-D 지표를 재현해 비교할 때만 쓴다.
+        """
         src = int(self.tree.query(cam)[1])
         dist = {src: 0.0}
         pq = [(0.0, src)]
@@ -631,6 +639,61 @@ class RoadNet:
                     out.append((0.5 * (self.xy[u, 0] + self.xy[v, 0]),
                                 0.5 * (self.xy[u, 1] + self.xy[v, 1]), w))
         return np.array(out) if out else np.empty((0, 3))
+
+    def reachable_surface(self, mask, half, cam, dx=0.0, dy=0.0, cap=R_MAX):
+        """카메라에서 **도로면을 따라 걸어서** cap 이내인 폴리곤 셀.
+
+        `(domain, reach)` 를 준다 — `domain` 은 지표용 `[(x, y, 면적)]`, `reach` 는 그림용
+        불리언 마스크(`mask` 와 같은 격자)다. 그림이 지표와 **같은 대상**을 칠하게 하려고
+        둘을 함께 낸다 (D-06 ①).
+
+        `surface_mask` 가 만든 0.5m 격자를 8-이웃 그래프로 보고 측지 거리를 잰다.
+        도달성을 중심선이 아니라 **도로면 자체**에서 정의하는 것이 핵심이다 (D-06/X-38):
+          - 폭이 자동으로 들어온다. 버퍼 상수를 고를 필요가 없다.
+          - 건물 뒤 다른 도로는 측지 거리가 멀어 자연히 빠진다 (직선거리로는 가깝다).
+        출발 셀은 **보정된** 카메라 위치(cam+d)에 가장 가까운 폴리곤 셀이다. 그 셀이 8m 보다
+        멀면 도로면 위가 아니라는 뜻이라 빈 배열을 준다(호출자가 판정 불가로 떨어뜨린다).
+
+        `surface_mask` 는 pose 정합이 이미 만들어 두므로 여기서 다시 만들지 않는다.
+        """
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import dijkstra
+
+        empty = (np.zeros((0, 3)), None)
+        if mask is None:
+            return empty
+        rr, cc = np.nonzero(mask)
+        if len(rr) == 0:
+            return empty
+        n = mask.shape[0]
+        idx = -np.ones((n, n), np.int64)
+        idx[rr, cc] = np.arange(len(rr))
+
+        rows, cols, vals = [], [], []
+        for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+            a = idx[max(0, -dr):n - max(0, dr), max(0, -dc):n - max(0, dc)]
+            b = idx[max(0, dr):n + min(0, dr), max(0, dc):n + min(0, dc)]
+            m = (a >= 0) & (b >= 0)
+            if not m.any():
+                continue
+            rows.append(a[m]); cols.append(b[m])
+            vals.append(np.full(int(m.sum()), POSE_RES * math.hypot(dr, dc)))
+        if not rows:
+            return empty
+        g = coo_matrix((np.concatenate(vals),
+                        (np.concatenate(rows), np.concatenate(cols))),
+                       shape=(len(rr), len(rr))).tocsr()
+
+        wx = cam[0] - half + (cc + 0.5) * POSE_RES
+        wy = cam[1] + half - (rr + 0.5) * POSE_RES
+        cx, cy = cam[0] + dx, cam[1] + dy
+        src = int(np.argmin((wx - cx) ** 2 + (wy - cy) ** 2))
+        if math.hypot(wx[src] - cx, wy[src] - cy) > 8.0:
+            return empty
+        ok = np.isfinite(dijkstra(g, directed=False, indices=src, limit=cap))
+        reach = np.zeros_like(mask)
+        reach[rr[ok], cc[ok]] = True
+        return np.c_[wx[ok], wy[ok], np.full(int(ok.sum()), POSE_RES ** 2)], reach
 
 
 def _world_to_bev(px, py, cam, bearing_deg, dx=0.0, dy=0.0):
@@ -709,30 +772,6 @@ def scatter_grid(theta, rng):
     return g
 
 
-def road_grid(links, cam, bearing, dx=0.0, dy=0.0, width=6.0):
-    """도달 가능한 도로 링크 -> 240x240 bool.
-
-    실제 도로 모양이 아니라 '무엇을 쟀는지'(중심선)를 표시하는 선이다. 도로면 자체는
-    surface_grid 가 실폭도로 폴리곤으로 그린다 -- 고정폭 리본을 도로라고 그리면
-    폭 35m 대로도 회전교차로도 6m 띠가 되어 사진과 맞을 수가 없었다.
-    """
-    g = np.zeros((CANVAS, CANVAS), bool)
-    if len(links) == 0:
-        return g
-    bx, by = _world_to_bev(links[:, 0], links[:, 1], cam, bearing, dx, dy)
-    keep = np.hypot(bx, by) <= R_MAX
-    if not keep.any():
-        return g
-    k = max(1, int(round(width / GRID_RES / 2)))
-    c = ((CENTER[0] + bx[keep] / GRID_RES)).astype(np.int64)
-    r = ((CENTER[1] - by[keep] / GRID_RES)).astype(np.int64)
-    for dr in range(-k, k + 1):
-        for dc in range(-k, k + 1):
-            rr, cc = np.clip(r + dr, 0, CANVAS - 1), np.clip(c + dc, 0, CANVAS - 1)
-            g[rr, cc] = True
-    return g
-
-
 def surface_grid(mask, half, cam, bearing, dx=0.0, dy=0.0):
     """실폭도로 폴리곤 래스터 -> 240x240 bool (BEV 카메라 좌표계).
 
@@ -762,7 +801,8 @@ def surface_grid(mask, half, cam, bearing, dx=0.0, dy=0.0):
 C_NODATA = (200, 200, 200)
 C_SURFACE = (150, 152, 158)      # GIS 실폭도로 (실제 폭과 모양)
 C_IMGROAD = (62, 128, 196)       # 파노라마가 실제로 본 도로면
-C_AXIS = (34, 34, 40)            # 측정 대상 = 도로 중심선
+C_DOMAIN = (96, 99, 108)         # 측정 대상 = 도달 가능한 도로면 (D-06). 폴리곤보다
+                                 # 어둡게 칠해 '도메인 밖 도로'와 구분되게 한다
 C_OUTBAND = (100, 200, 100)
 C_BLOCKER = (220, 80, 80)
 C_SHADOW = (255, 190, 0)         # 도로 위 사각지대 = 지표에 들어가는 것
@@ -771,7 +811,7 @@ C_SHADOW_OFF = (255, 238, 180)   # 도로 밖 사각지대 = 맥락 (bev_render_
 BEV_LEGEND = [(tuple(v / 255 for v in c), lab) for c, lab in [
     (C_SURFACE, "GIS road surface"),
     (C_IMGROAD, "Road seen in panorama"),
-    (C_AXIS, "Measured domain (centerline)"),
+    (C_DOMAIN, "Measured domain (road surface)"),
     (C_BLOCKER, "Occluder (in sight band)"),
     (C_OUTBAND, "Out of sight band"),
     (C_SHADOW, "Blind zone on road (counted)"),
@@ -780,26 +820,30 @@ BEV_LEGEND = [(tuple(v / 255 for v in c), lab) for c, lab in [
 ]]
 
 
-def bev_canvas(faces, cal, mask, half, links, gxy, cam, bearing, dx=0.0, dy=0.0):
+def bev_canvas(faces, cal, mask, half, reach, gxy, cam, bearing, dx=0.0, dy=0.0):
     """240x240x3 시각화 캔버스.
 
-    아래에서 위로: 자료없음 -> GIS 도로면 -> 사진이 본 도로면 -> 측정 대상(중심선)
-    -> 시선대역 밖 점 -> 차단물.
+    아래에서 위로: 자료없음 -> GIS 도로면 -> **측정 대상(도달 가능한 도로면)**
+    -> 사진이 본 도로면 -> 시선대역 밖 점 -> 차단물.
 
     두 도로 출처를 겹쳐 그리는 이유: 지표는 GIS 도로 위치에 의존하는데, 그 배치가 이
     파노라마에서 맞았는지를 예전 그림으로는 판정할 수 없었다. 겹쳐 그리면
       회색만 있고 파랑 없음 -> 가려서 못 본 도로 (측정하려는 것)
       파랑이 회색 밖으로 나감 -> 정합 오차 (믿으면 안 되는 것)
     이 눈으로 구분된다.
+
+    측정 대상을 **사진 도로면 아래**에 까는 것이 중요하다. D-06 으로 도메인이 선에서 면이
+    되면서 위에 칠하면 파랑을 통째로 덮어 위 진단이 사라진다. 아래에 깔면 진한 회색 = 쟀고
+    못 본 곳 / 그 위 파랑 = 쟀고 본 곳 / 연한 회색 = 도메인 밖 으로 셋이 읽힌다.
     """
     bev = np.full((CANVAS, CANVAS, 3), C_NODATA, np.uint8)
     bev[surface_grid(mask, half, cam, bearing, dx, dy)] = C_SURFACE
+    if reach is not None:
+        bev[surface_grid(reach, half, cam, bearing, dx, dy)] = C_DOMAIN
 
     gx, gy = gxy
     if len(gx):
         bev[scatter_grid(np.arctan2(gx, gy), np.hypot(gx, gy))] = C_IMGROAD
-
-    bev[road_grid(links, cam, bearing, dx, dy, width=1.5)] = C_AXIS
 
     th, rg, ht, mn = [], [], [], []
     for d in ORDER:
@@ -861,7 +905,7 @@ def suptitle_for(rec, pano, tag=""):
     lines = [
         pano,
         f"{head}   |   road occluded {rec['road_occluded_frac']:.1%}"
-        f" of {rec['road_span_m']:.0f}m (excluded {rec['road_unknown_frac']:.0%})"
+        f" of {rec['road_domain_m2']:.0f}m2 (excluded {rec['road_unknown_frac']:.0%})"
         f"   |   L_vis {rec['l_vis_m']:.1f}m vs D_stop {rec['d_stopping_m']:.1f}m"
         f" [{rec['speed_limit_kmh']:.0f}km/h cls{rec['road_class']}]{tag}",
         f"pose:     fit {p['fit_score']:.2f}"
@@ -880,10 +924,16 @@ def ray_hits(r_theta):
     return list(zip((np.arange(N_BINS) * 360.0 / N_BINS).tolist(), r_theta.tolist()))
 
 
-def road_occlusion(links, r_theta, cam, bearing, dx=0.0, dy=0.0, r_veh=None):
-    """도로를 따라 R 이내인 구간 중 r(theta) 로 '안 보이는' 길이의 비율.
+def road_occlusion(domain, r_theta, cam, bearing, dx=0.0, dy=0.0, r_veh=None):
+    """도메인 중 r(theta) 로 '안 보이는' 몫의 비율.
 
-    폭을 쓰지 않으므로 GIS 좌표 오차(카메라~노드 중앙 2.5m)에 견고하다.
+    `domain` 은 `(x, y, 가중치)` 배열이다 — `reachable_surface` 가 주는 (도로면 셀, 면적).
+    D-06 전에는 `reachable` 이 주는 (중심선 링크, 길이)였고 수식은 같다.
+
+    **왜 면적인가** (D-06/X-38): 중심선 도메인에서는 카메라가 그 선 위에 서 있어 직선 도로가
+    자명하게 다 보인다 -> 차폐율 0 이 51.8% 로 쏠려 하위 절반이 동일값이 됐다. 면적으로 바꾸면
+    6.7% 다. 좌표 오차에도 면적이 더 강하다 — 2.5m 흔들기에서 상대오차 1-D 40.9% 대 25.2% 로,
+    질량이 선 하나에 몰린 1-D 가 링크째 뒤집히는 반면 면적은 수천 셀에 평균이 걸린다.
 
     r_veh 를 주면 '차량 뒤라 알 수 없는' 구간을 **분모에서 뺀다**. 구조물만으로 재면 차량이
     가린 방향에서는 그 뒤의 구조물이 애초에 보이지 않아 r_theta 가 커지고, 결과적으로 그
@@ -893,31 +943,31 @@ def road_occlusion(links, r_theta, cam, bearing, dx=0.0, dy=0.0, r_veh=None):
     반환의 road_occluded_frac 은 '아는 도로 중 안 보이는 비율'이고, 얼마나 몰랐는지는
     road_unknown_frac(전체 대비)으로 따로 남긴다. 판정 가능 여부는 호출자가 정한다.
     """
-    if len(links) == 0:
+    if len(domain) == 0:
         return None
-    bx, by = _world_to_bev(links[:, 0], links[:, 1], cam, bearing, dx, dy)
+    bx, by = _world_to_bev(domain[:, 0], domain[:, 1], cam, bearing, dx, dy)
     rr = np.hypot(bx, by)
     keep = rr <= R_MAX
     if keep.sum() == 0:
         return None
-    rr, w = rr[keep], links[keep, 2]
+    rr, w = rr[keep], domain[keep, 2]
     th = np.arctan2(bx[keep], by[keep]) % (2 * np.pi)
     k = (th / (2 * np.pi) * N_BINS).astype(np.int64) % N_BINS
     tot = float(w.sum())
-    if tot <= 5.0:
+    if tot < MIN_DOMAIN_M2:
         return None
 
     hidden = r_theta[k] < rr
     occ = float(w[hidden].sum())
     if r_veh is None:                       # 차량 포함 기준: 모르는 구간이 없다
-        return {"road_occluded_frac": occ / tot, "road_span_m": tot,
-                "road_occluded_m": occ, "road_known_m": tot, "road_unknown_frac": 0.0}
+        return {"road_occluded_frac": occ / tot, "road_domain_m2": tot,
+                "road_occluded_m2": occ, "road_known_m2": tot, "road_unknown_frac": 0.0}
 
     # 구조물에 이미 가려진 구간은 차량과 무관하게 '안 보임'이다. 나머지 중 차량이 먼저
     # 막는 방향만 '모름'으로 뺀다.
     unknown = (~hidden) & (r_veh[k] < np.minimum(r_theta[k], rr))
     unk = float(w[unknown].sum())
     known = tot - unk
-    den = known if known > 5.0 else tot     # 아는 구간이 거의 없으면 옛 정의로 퇴화(호출자가 기각)
-    return {"road_occluded_frac": occ / den, "road_span_m": tot,
-            "road_occluded_m": occ, "road_known_m": known, "road_unknown_frac": unk / tot}
+    den = known if known >= MIN_DOMAIN_M2 else tot   # 아는 몫이 거의 없으면 옛 정의로 퇴화
+    return {"road_occluded_frac": occ / den, "road_domain_m2": tot,
+            "road_occluded_m2": occ, "road_known_m2": known, "road_unknown_frac": unk / tot}
