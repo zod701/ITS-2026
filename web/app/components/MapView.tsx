@@ -83,8 +83,19 @@ function isDarkTheme(): boolean {
 // 배경지도는 두 테마 모두 CARTO 무채색 타일을 쓴다. 기본 OSM 타일은 산이 초록, 물이 파랑,
 // 건물이 분홍이라 그 위에 얹는 DSI 등급색(초록·노랑·빨강)과 버스 노선색이 배경과 섞여 읽히지
 // 않았다. 배경에서 색을 빼면 화면의 색은 전부 지표를 뜻하게 된다.
-const LIGHT_TILE_URL = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
-const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+// CARTO 가 2026 년 들어 raster(PNG) 베이스맵에 API 키를 요구하기 시작했다. 키가 없으면
+// 타일에 "API KEY REQUIRED" 워터마크가 찍힌다(무료 한도 월 500만 타일, 비상업 이용).
+// 키는 carto.com/basemaps/apikey 에서 도메인을 적어 신청하면 바로 발급된다.
+// 타일은 브라우저가 직접 받으므로 키가 클라이언트에 노출된다 — CARTO 도 그 전제로
+// 도메인을 받아 제한하므로 NEXT_PUBLIC_ 로 둔다 (Drive 키처럼 감출 수 있는 종류가 아니다).
+// 키가 없으면 지금처럼 워터마크가 있는 채로 계속 동작한다.
+const CARTO_KEY = process.env.NEXT_PUBLIC_CARTO_API_KEY;
+const cartoTiles = (style: string) =>
+  `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png` +
+  (CARTO_KEY ? `?key=${CARTO_KEY}` : "");
+
+const LIGHT_TILE_URL = cartoTiles("light_all");
+const DARK_TILE_URL = cartoTiles("dark_all");
 const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
