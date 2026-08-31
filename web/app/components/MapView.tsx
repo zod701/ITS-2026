@@ -5,10 +5,12 @@ import L from "leaflet";
 import type { PointFeature, SelectedPoint } from "../types";
 import { gradeFromDsi, versionById } from "../versions";
 import {
+  ACCIDENT_COLORS,
   BUS_ROUTE_COLORS,
   GRADE_COLORS,
   NO_DATA_COLOR,
   NO_DATA_KEY,
+  type AccidentLayer,
   type BusRoute,
   type Grade,
   type GradeFilterKey,
@@ -61,10 +63,42 @@ interface BusRoutesGeoJson {
   features: BusRouteFeature[];
 }
 
+// TAAS 사고 이력 오버레이. 두 파일 모두 폴리곤이고 좌표계는 WGS84.
+interface RiskAreaFeature {
+  type: "Feature";
+  geometry: { type: "Polygon"; coordinates: [number, number][][] };
+  properties: {
+    id: string;
+    year: string;
+    acc: number;
+    dth: number;
+    se: number;
+    sl: number;
+    cause: string;
+  };
+}
+
+interface HotspotFeature {
+  type: "Feature";
+  geometry: { type: "Polygon"; coordinates: [number, number][][] };
+  properties: {
+    year: string;
+    name: string;
+    full: string;
+    acc: number;
+    cas: number;
+    dth: number;
+    se: number;
+  };
+}
+
 interface Props {
   onSelect: (point: SelectedPoint) => void;
   visibleGrades: Record<GradeFilterKey, boolean>;
   visibleRoutes: Record<BusRoute, boolean>;
+  visibleAccident: Record<AccidentLayer, boolean>;
+  /** 레이어별로 켜 둔 연도. 레이어가 켜져 있어도 여기 없는 연도는 그리지 않는다. */
+  accidentYears: Record<AccidentLayer, Record<string, boolean>>;
   /** 도로 색상에 쓸 03 실행 버전 (versions.ts). 바뀌면 선 색을 다시 칠한다. */
   version: string;
   /** 값이 바뀔 때마다 지도를 해당 지점으로 이동(flyTo)한다. */
@@ -126,6 +160,8 @@ export default function MapView({
   onSelect,
   visibleGrades,
   visibleRoutes,
+  visibleAccident,
+  accidentYears,
   version,
   flyToTarget,
   highlightPointIds,
@@ -150,6 +186,16 @@ export default function MapView({
   // 항상 여기 저장해두고, 도로 레이어가 (나중에) 추가된 직후 다시 앞으로 가져와 항상
   // 버스 노선이 DSI 선 위에 보이도록 강제한다.
   const busRouteLayersRef = useRef<L.GeoJSON[]>([]);
+  // 사고 이력 오버레이는 DSI 도로·버스 노선보다 위에 그린다 - 아래에 두면 촘촘한 도로선이
+  // 면을 잘게 끊어 놔 어디까지가 한 구역인지 읽히지 않는다. 대신 면 안쪽은 globals.css 의
+  // pointer-events:stroke 로 클릭을 통과시켜, 그 아래 도로의 패널 열기를 가리지 않는다.
+  // 세 레이어(도로·버스노선·사고이력)가 각자 비동기로 도착하므로, 어느 것이 추가되든
+  // 끝에 raiseAccidentRef 를 불러 순서를 다시 세운다.
+  const accidentLayersRef = useRef<Partial<Record<AccidentLayer, L.GeoJSON>>>({});
+  const raiseAccidentRef = useRef<() => void>(() => {});
+  const visibleAccidentRef = useRef(visibleAccident);
+  const accidentYearsRef = useRef(accidentYears);
+  const applyAccidentFilterRef = useRef<() => void>(() => {});
 
   // ref 만 읽으므로 신원이 고정돼도 항상 현재 버전의 데이터를 본다.
   const gradeKeyFor = useCallback((edgeId: string): GradeFilterKey => {
@@ -212,6 +258,16 @@ export default function MapView({
     visibleRoutesRef.current = visibleRoutes;
     applyRouteFilterRef.current();
   }, [visibleRoutes]);
+
+  useEffect(() => {
+    visibleAccidentRef.current = visibleAccident;
+    applyAccidentFilterRef.current();
+  }, [visibleAccident]);
+
+  useEffect(() => {
+    accidentYearsRef.current = accidentYears;
+    applyAccidentFilterRef.current();
+  }, [accidentYears]);
 
   // 검색 결과 지점으로 지도 이동 + 마커 임시 강조.
   useEffect(() => {
@@ -343,6 +399,8 @@ export default function MapView({
         // 도로가 버스 노선보다 나중에 추가돼 위로 올라갈 수 있으니, 이미 그려진 버스
         // 노선이 있으면 다시 맨 앞으로 가져온다.
         busRouteLayersRef.current.forEach((layer) => layer.bringToFront());
+        // 사고 이력은 그보다도 위.
+        raiseAccidentRef.current();
 
         // grade 체크박스(범례)로 토글될 때 해당 등급 도로만 지도에 남기고 나머지는 제거.
         applyFilterRef.current = () => {
@@ -386,6 +444,7 @@ export default function MapView({
         busRouteLayersRef.current = [casingLayer, busRoutesLayer];
         casingLayer.bringToFront();
         busRoutesLayer.bringToFront();
+        raiseAccidentRef.current();
 
         // 노선 체크박스(범례)로 토글될 때 해당 노선(케이싱+컬러 라인 둘 다)만 지도에 남기고 나머지는 제거.
         applyRouteFilterRef.current = () => {
@@ -401,12 +460,94 @@ export default function MapView({
         applyRouteFilterRef.current();
       });
 
+    // TAAS 사고 이력 두 겹. 9개 연도가 한꺼번에 얹히므로 반투명으로 두어, 여러 해가 겹친
+    // 곳이 자연스럽게 진해지도록 한다(같은 자리가 해마다 반복 선정된 지점).
+    Promise.all([
+      fetch("/data/accident_risk_areas.geojson").then((res) => res.json()),
+      fetch("/data/accident_hotspots.geojson").then((res) => res.json()),
+    ])
+      .catch(() => null)
+      .then((loaded) => {
+        if (cancelled || !loaded) return;
+        const [riskAreas, hotspots] = loaded as [
+          { features: RiskAreaFeature[] },
+          { features: HotspotFeature[] },
+        ];
+
+        const riskLayer = L.geoJSON(riskAreas as unknown as GeoJSON.GeoJsonObject, {
+          // 도로선 위에 얹히므로 채움을 옅게 둬 아래 DSI 색이 비쳐 보이게 하고, 대신
+          // 테두리를 조금 굵혀 구역 경계가 도로선에 묻히지 않게 한다(툴팁 히트영역이기도 하다).
+          // className 은 GeoJSONOptions 에는 없고 PathOptions 에만 있어 style 로 넘긴다 —
+          // 지도에 붙기 전에 layer.options 로 합쳐지므로 _initPath 가 그대로 집어 간다.
+          style: () => ({
+            className: "accident-risk-area",
+            color: ACCIDENT_COLORS.riskArea,
+            weight: 2,
+            opacity: 0.85,
+            fillColor: ACCIDENT_COLORS.riskArea,
+            fillOpacity: 0.14,
+          }),
+          onEachFeature: (feature, layer) => {
+            const p = (feature as unknown as RiskAreaFeature).properties;
+            layer.bindTooltip(
+              `<b>위험지역 ${p.year}년</b><br/>사고 ${p.acc}건 · 사망 ${p.dth} · 중상 ${p.se} · 경상 ${p.sl}` +
+                (p.cause ? `<br/><span style="opacity:.7">${p.cause}</span>` : ""),
+              { sticky: true }
+            );
+          },
+        }).addTo(map);
+
+        // 다발지역은 반경 약 118m 의 고정 원이라 채우지 않고 테두리만 그린다 - 위험지역 면과
+        // 겹쳐도 어느 쪽 도형인지 형태로 구분된다.
+        const hotspotLayer = L.geoJSON(hotspots as unknown as GeoJSON.GeoJsonObject, {
+          style: () => ({
+            color: ACCIDENT_COLORS.hotspot,
+            weight: 2.5,
+            opacity: 0.95,
+            fill: false,
+          }),
+          onEachFeature: (feature, layer) => {
+            const p = (feature as unknown as HotspotFeature).properties;
+            layer.bindTooltip(
+              `<b>${p.name} · ${p.year}년</b><br/>사고 ${p.acc}건 · 사상 ${p.cas}명 · 사망 ${p.dth} · 중상 ${p.se}`,
+              { sticky: true }
+            );
+          },
+        }).addTo(map);
+
+        accidentLayersRef.current = { riskArea: riskLayer, hotspot: hotspotLayer };
+        // 앞으로 올리는 순서가 곧 쌓임 순서다 - 나중에 부른 쪽이 더 위로 온다.
+        // 결과: DSI 도로 → 버스 노선 → 위험지역 면 → 맨 위 다발지역 테두리.
+        raiseAccidentRef.current = () => {
+          accidentLayersRef.current.riskArea?.bringToFront();
+          accidentLayersRef.current.hotspot?.bringToFront();
+        };
+        raiseAccidentRef.current();
+
+        applyAccidentFilterRef.current = () => {
+          (Object.keys(accidentLayersRef.current) as AccidentLayer[]).forEach((key) => {
+            const layerOn = visibleAccidentRef.current[key];
+            const years = accidentYearsRef.current[key];
+            accidentLayersRef.current[key]?.eachLayer((layer) => {
+              const feature = (layer as L.Path & {
+                feature: { properties: { year: string } };
+              }).feature;
+              const show = layerOn && years[feature.properties.year] !== false;
+              const el = (layer as L.Path).getElement();
+              if (el) (el as HTMLElement).style.display = show ? "" : "none";
+            });
+          });
+        };
+        applyAccidentFilterRef.current();
+      });
+
     return () => {
       cancelled = true;
       observer.disconnect();
       map.remove();
       mapRef.current = null;
       busRouteLayersRef.current = [];
+      accidentLayersRef.current = {};
     };
     // 이 effect 는 지도를 만들고 정리(map.remove())까지 하므로 반드시 마운트 1회만 돌아야
     // 한다 - 다시 돌면 지도가 통째로 재생성되어 보고 있던 위치·줌이 초기화된다. 색상 함수
