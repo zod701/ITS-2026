@@ -7,10 +7,11 @@ output/
 /GIS/노드링크/
 /GIS/실폭도로/
 /demand/
-/TAAS/
+/emme/
 
 *.pdf
 *.ps1
+.env
 
 rclone_log.txt
 GIS/historical_panoids.csv

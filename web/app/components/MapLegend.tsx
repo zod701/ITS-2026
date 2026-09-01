@@ -62,9 +62,9 @@ export const ACCIDENT_YEARS: Record<AccidentLayer, string[]> = {
 
 const ACCIDENT_TITLES: Record<AccidentLayer, string> = {
   riskArea:
-    "링크기반 교통사고 위험지역 (2017~2025, 64건). 시 전역의 사고 밀집구역을 전수로 담는다.",
+    "링크기반 교통사고 위험지역 (2017~2025, 64건). 시 전역의 사고 밀집구역.",
   hotspot:
-    "지자체별 교통사고 다발지역 (2018~2025, 24건). 해마다 시군구별 상위 3곳만 추린다.",
+    "지자체별 교통사고 다발지역 (2018~2025, 24건). 해마다 상위 3구간.",
 };
 
 interface BusRouteDsiRecord {
