@@ -102,12 +102,3 @@ main {
     bottom: 0;
   }
 }
-
-/* 사고 이력(위험지역) 면은 DSI 도로선 위에 그려지지만, 넓은 내부가 그 아래 도로의 클릭
-   (지점 패널 열기)을 삼키면 안 된다. 테두리만 히트테스트 대상으로 두면 면 안쪽은 클릭이
-   그대로 도로로 통과하고, 테두리에 올렸을 때만 툴팁이 뜬다.
-   leaflet.css 의 `.leaflet-pane > svg path.leaflet-interactive { pointer-events: auto }`
-   를 덮어써야 하므로 선택자를 그보다 구체적으로 쓴다. */
-.leaflet-pane > svg path.accident-risk-area.leaflet-interactive {
-  pointer-events: stroke;
-}

@@ -14,11 +14,12 @@ import MapLegend, {
   type BusRoute,
   type GradeFilterKey,
 } from "./components/MapLegend";
+import BusRouteButton from "./components/BusRouteButton";
 import PointDetailPanel from "./components/PointDetailPanel";
 import SearchBox from "./components/SearchBox";
 import ThemeToggle from "./components/ThemeToggle";
 import type { PointFeature, SelectedPoint } from "./types";
-import { DEFAULT_DSI_VERSION } from "./versions";
+import { DEFAULT_ALPHA, DEFAULT_DSI_VERSION, versionById } from "./versions";
 
 const MapView = dynamic(() => import("./components/MapView"), { ssr: false });
 
@@ -64,6 +65,15 @@ function HomeInner() {
   );
   // 03 실행 버전. 지도 색상·평균 DSI·패널의 DSI 값과 BEV 이미지가 모두 이 값을 따른다.
   const [dsiVersion, setDsiVersion] = useState<string>(DEFAULT_DSI_VERSION);
+  // α(정적:동적 비중)는 사고 자료로 유도되지 않는 설계 파라미터라(TAAS/method.md D-21)
+  // 사용자가 직접 움직인다. 버전을 바꾸면 그 판의 기본값으로 되돌린다.
+  const [alpha, setAlpha] = useState(
+    versionById(DEFAULT_DSI_VERSION).alphaDefault ?? DEFAULT_ALPHA
+  );
+  const changeVersion = (v: string) => {
+    setDsiVersion(v);
+    setAlpha(versionById(v).alphaDefault ?? DEFAULT_ALPHA);
+  };
 
   const toggleGrade = (key: GradeFilterKey) => {
     setVisibleGrades((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -147,27 +157,42 @@ function HomeInner() {
         visibleAccident={visibleAccident}
         accidentYears={accidentYears}
         version={dsiVersion}
+        alpha={alpha}
         flyToTarget={flyToTarget}
         highlightPointIds={highlightPointIds}
       />
       {selected && (
-        <PointDetailPanel point={selected} version={dsiVersion} onClose={closePanel} />
+        <PointDetailPanel
+            point={selected}
+            version={dsiVersion}
+            alpha={alpha}
+            onClose={closePanel}
+          />
       )}
       <MapLegend
         visibleGrades={visibleGrades}
         onToggleGrade={toggleGrade}
         onSetAllGrades={setAllGrades}
-        visibleRoutes={visibleRoutes}
-        onToggleRoute={toggleRoute}
         visibleAccident={visibleAccident}
         onToggleAccident={toggleAccident}
         accidentYears={accidentYears}
         onToggleAccidentYear={toggleAccidentYear}
         onSetAllAccidentYears={setAllAccidentYears}
         version={dsiVersion}
-        onChangeVersion={setDsiVersion}
+        alpha={alpha}
+        onChangeVersion={changeVersion}
+        onAlphaChange={setAlpha}
         style={{ left: 60, right: 84, top: 12, justifyContent: "center" }}
-      />
+      >
+        {/* 버스 노선은 버전과 무관한 고정 오버레이라 범례 항목으로 늘어놓지 않고 버튼
+            하나로 접어 둔다. 범례가 버전마다 길어져 두 줄로 접히던 문제를 없앤다. */}
+        <BusRouteButton
+          visibleRoutes={visibleRoutes}
+          onToggleRoute={toggleRoute}
+          version={dsiVersion}
+          alpha={alpha}
+        />
+      </MapLegend>
       <SearchBox
         points={points}
         onSelectPoint={goToPoint}

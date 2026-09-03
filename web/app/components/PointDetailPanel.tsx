@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SelectedPoint } from "../types";
-import { gradeFromDsi, versionById, type BevCrop, type BevLayout } from "../versions";
+import {
+  combineAlpha,
+  gradeFromDsi,
+  gridTerciles,
+  tercilesOf,
+  versionById,
+  type BevCrop,
+  type BevLayout,
+  type TercileGrid,
+} from "../versions";
 
 // build_point_detail.py 가 쓰는 축약 키. 실행마다 기록한 필드가 달라 전부 optional 이다.
 interface PointDetail {
@@ -72,6 +81,21 @@ const METRIC_TIPS = {
     + "거리 환산은 바닥을 기준으로 풀기 때문에, 2면 미만이면 환산이 성립하지 않아 판정 불가가 됩니다.",
 };
 
+// 정적·동적 성분은 각각 0~1 로 정규화된 값이고, 화면의 DSI 는 α 로 섞은 결과다.
+// 정적 신뢰도(confidence)와 성격이 다르다 — 저쪽은 BEV 계측 품질이고 이쪽은 **보간 근거의
+// 질**이다. 통행량은 계측 교차로 75개소에서만 관측되고 나머지는 IDW 근사이므로,
+// 근거가 얼마나 가까운지(d_near)와 참조한 계측값들이 서로 얼마나 어긋나는지(disp)를 본다.
+const DYN_CONFIDENCE_TIPS = [
+  "동적 항 미적용 — 가장 가까운 계측 교차로가 1km 넘게 떨어져 있어 통행량을 추정하지 않았습니다. 이 지점의 값은 정적 DSI 그대로입니다.",
+  "보간 근거 보통 — 계측 교차로가 멀거나, 참조한 계측값들이 서로 크게 어긋납니다. 대부분의 지점이 여기 해당합니다.",
+  "보간 근거 양호 — 계측 교차로가 300m 이내이고, 참조한 계측값들이 2.5배 이내로 모여 있습니다. 전체의 약 18%입니다.",
+];
+
+const DSI_PARTS_TIP =
+  "위 DSI 를 이루는 두 성분입니다. 각각 0~1 로 정규화돼 있습니다.\n"
+  + "정적 = 시야 차폐로 계산한 값, 동적 = 통행량·주정차 대리로 계산한 값입니다.\n"
+  + "DSI = 정적 × α + 동적 × (1−α) 이며, α 는 상단 패널의 슬라이더로 조절합니다.";
+
 const fmt = (v: number | undefined, digits = 2, unit = "") =>
   v === undefined ? null : `${v.toFixed(digits)}${unit}`;
 
@@ -95,16 +119,25 @@ interface Props {
   point: SelectedPoint;
   /** 03 실행 버전 (versions.ts). 범례에서 고르며 BEV 이미지와 DSI 값이 함께 바뀐다. */
   version: string;
+  /** 정적:동적 비중. 성분이 실린 판에서는 이 값으로 DSI 를 다시 합성한다. */
+  alpha: number;
   onClose: () => void;
 }
 
-export default function PointDetailPanel({ point, version, onClose }: Props) {
+export default function PointDetailPanel({ point, version, alpha, onClose }: Props) {
+  // BEV 이미지·지점 상세는 파이프라인 산출물이라, DSI 값만 다시 만든 버전은 원판 것을
+  // 그대로 쓴다 (versions.ts 의 assetsFrom). DSI 맵은 버전 자기 것을 쓴다.
+  const assetVersion = versionById(version).assetsFrom ?? version;
   const [imageMap, setImageMap] = useState<Record<string, string> | null>(null);
   const [segMap, setSegMap] = useState<Record<string, string> | null>(null);
   const [depthMap, setDepthMap] = useState<Record<string, string> | null>(null);
   const [bevMaps, setBevMaps] = useState<Record<string, Record<string, string>>>({});
   const [addressMap, setAddressMap] = useState<Record<string, string> | null>(null);
-  const [dsiMaps, setDsiMaps] = useState<Record<string, Record<string, { dsi: number }>>>({});
+  // 지도 도로 색과 같은 잣대를 쓰도록 기준판 임계 격자를 받아 둔다 (D-24).
+  const [tercileGrid, setTercileGrid] = useState<TercileGrid | null>(null);
+  const [dsiMaps, setDsiMaps] = useState<
+    Record<string, Record<string, { dsi: number; s?: number; d?: number; dc?: number }>>
+  >({});
   // `<version>/<bucket>` -> 그 조각의 지점 상세. 조각 단위로만 받아 둔다.
   const [detailBuckets, setDetailBuckets] = useState<Record<string, Record<string, PointDetail>>>(
     {}
@@ -163,20 +196,20 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
 
   // 버전별 맵은 장당 2MB대라 고른 버전만 받아 두고 재사용한다(받아둔 버전은 다시 받지 않음).
   useEffect(() => {
-    if (bevMaps[version]) return;
+    if (bevMaps[assetVersion]) return;
     let cancelled = false;
-    fetch(`/data/bev_map_${version}.json`)
+    fetch(`/data/bev_map_${assetVersion}.json`)
       .then((res) => res.json())
       .then((map) => {
-        if (!cancelled) setBevMaps((prev) => ({ ...prev, [version]: map }));
+        if (!cancelled) setBevMaps((prev) => ({ ...prev, [assetVersion]: map }));
       })
       .catch(() => {
-        if (!cancelled) setBevMaps((prev) => ({ ...prev, [version]: {} }));
+        if (!cancelled) setBevMaps((prev) => ({ ...prev, [assetVersion]: {} }));
       });
     return () => {
       cancelled = true;
     };
-  }, [version, bevMaps]);
+  }, [assetVersion, bevMaps]);
 
   useEffect(() => {
     if (dsiMaps[version]) return;
@@ -197,7 +230,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
   // 지점 상세는 전량이 버전당 12MB라 저장소에 두지 않고 BEV 이미지와 같은 Drive 폴더에
   // 둔다. /api/point-detail 이 조각 하나만 서버에서 받아 CDN 캐시로 넘겨준다.
   // 상세를 올리지 않은 버전(260811 등)은 404 가 나므로 빈 객체로 두고 절 자체를 숨긴다.
-  const detailBucket = `${version}/${Math.floor(Number(point.pointId) / DETAIL_BUCKET_SIZE)}`;
+  const detailBucket = `${assetVersion}/${Math.floor(Number(point.pointId) / DETAIL_BUCKET_SIZE)}`;
   useEffect(() => {
     if (detailBuckets[detailBucket]) return;
     let cancelled = false;
@@ -213,6 +246,13 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
       cancelled = true;
     };
   }, [detailBucket, detailBuckets]);
+
+  useEffect(() => {
+    fetch("/data/terciles_grid.json")
+      .then((res) => res.json())
+      .then(setTercileGrid)
+      .catch(() => setTercileGrid(null));
+  }, []);
 
   useEffect(() => {
     fetch("/data/address_map.json")
@@ -234,7 +274,7 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
   const depthImageUrl = depthFileId
     ? `https://drive.google.com/thumbnail?id=${depthFileId}&sz=w1600`
     : null;
-  const bevMap = bevMaps[version];
+  const bevMap = bevMaps[assetVersion];
   const bevFileId = bevMap?.[key];
   const bevImageUrl = bevFileId
     ? `https://drive.google.com/thumbnail?id=${bevFileId}&sz=w1600`
@@ -253,6 +293,21 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
   // 원본 그대로 두고, 배지 표시에는 지점 단위 DSI 분포의 경계값을 쓴다. 지도 도로 색상
   // (MapView.tsx)의 도로 단위 경계값과는 분포가 달라 버전마다 값이 따로 있다(versions.ts).
   const { pointTerciles, bevLayout, poseAxes } = versionById(version);
+  // α 조절판은 성분(s·d)에서 DSI 를 다시 합성한다. 임계도 그 α 의 분포에서 다시 뽑아야
+  // 지도 도로 색과 배지가 어긋나지 않는다. 성분이 없는 판은 파일 값과 고정 임계를 쓴다.
+  const dsiValue =
+    dsiRecord === undefined
+      ? undefined
+      : dsiRecord.s !== undefined && dsiRecord.d !== undefined
+        ? combineAlpha(dsiRecord.s, dsiRecord.d, alpha)
+        : dsiRecord.dsi;
+  const effTerciles = useMemo(() => {
+    const fromGrid = gridTerciles(tercileGrid, "point", alpha);
+    if (fromGrid) return fromGrid;
+    const recs = dsiMap ? Object.values(dsiMap) : [];
+    if (recs.length === 0 || recs[0].s === undefined) return pointTerciles;
+    return tercilesOf(recs.map((r) => combineAlpha(r.s as number, r.d as number, alpha)));
+  }, [tercileGrid, dsiMap, alpha, pointTerciles]);
   const detail = detailBuckets[detailBucket]?.[key];
 
   const handleCopyLink = async () => {
@@ -290,16 +345,16 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                     원인이 된 지표 줄은 아래에서 빨갛게 표시된다. */}
                 {detail?.v === false ? (
                   <span className="dsi-grade-badge invalid-badge">판정 불가</span>
-                ) : dsiRecord ? (
+                ) : dsiValue !== undefined ? (
                   <>
-                    {dsiRecord.dsi.toFixed(2)}{" "}
+                    {dsiValue.toFixed(2)}{" "}
                     <span
                       className="dsi-grade-badge"
                       style={{
-                        background: GRADE_COLORS[gradeFromDsi(dsiRecord.dsi, pointTerciles)],
+                        background: GRADE_COLORS[gradeFromDsi(dsiValue, effTerciles)],
                       }}
                     >
-                      {gradeFromDsi(dsiRecord.dsi, pointTerciles)}
+                      {gradeFromDsi(dsiValue, effTerciles)}
                     </span>
                   </>
                 ) : dsiMap === undefined ? (
@@ -307,7 +362,9 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                 ) : (
                   "-"
                 )}
-                {detail?.cf !== undefined && (
+{/* 성분이 실린 판에서는 신뢰도를 각 성분 옆으로 내린다 — 결합값 옆에 두면
+                    정적 계측 품질이 결합 지수 전체의 신뢰도처럼 읽힌다. */}
+                {detail?.cf !== undefined && dsiRecord?.s === undefined && (
                   <span
                     {...tipProps(CONFIDENCE_TIPS[detail.cf])}
                     className="confidence-note has-tip"
@@ -316,6 +373,46 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
                     {" "}
                     신뢰도 {detail.cf}/2
                   </span>
+                )}
+                {/* 동적 지수를 결합한 판(260820_2~)은 성분이 실려 있다. 합성값만 보면
+                    슬라이더를 움직였을 때 무엇이 움직였는지 알 수 없어 둘을 함께 적는다. */}
+                {dsiRecord?.s !== undefined && dsiRecord.d !== undefined && (
+                  <div {...tipProps(DSI_PARTS_TIP)} className="dsi-parts has-tip">
+                    {/* 신뢰도는 각 성분 **아래**로 내린다 — 식 중간에 끼면 곱셈 항처럼
+                        읽혀 수식이 안 읽힌다. 두 축은 재는 것이 다르다: 계측은 BEV
+                        측정 품질, 보간은 통행량 근거의 질이다. */}
+                    <span className="dsi-part">
+                      <span className="dsi-part-val">
+                        정적 {dsiRecord.s.toFixed(3)}
+                        <span className="dsi-parts-op"> × {alpha.toFixed(2)}</span>
+                      </span>
+                      {detail?.cf !== undefined && (
+                        <span
+                          {...tipProps(CONFIDENCE_TIPS[detail.cf])}
+                          className="part-conf has-tip"
+                          style={{ color: CONFIDENCE_COLORS[detail.cf] }}
+                        >
+                          계측 신뢰도 {detail.cf}/2
+                        </span>
+                      )}
+                    </span>
+                    <span className="dsi-parts-plus">+</span>
+                    <span className="dsi-part">
+                      <span className="dsi-part-val">
+                        동적 {dsiRecord.d.toFixed(3)}
+                        <span className="dsi-parts-op"> × {(1 - alpha).toFixed(2)}</span>
+                      </span>
+                      {dsiRecord.dc !== undefined && (
+                        <span
+                          {...tipProps(DYN_CONFIDENCE_TIPS[dsiRecord.dc])}
+                          className="part-conf has-tip"
+                          style={{ color: CONFIDENCE_COLORS[dsiRecord.dc] }}
+                        >
+                          보간 신뢰도 {dsiRecord.dc}/2
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 )}
               </dd>
             </div>
@@ -662,9 +759,39 @@ export default function PointDetailPanel({ point, version, onClose }: Props) {
         .metric-sub {
           color: var(--text-muted);
         }
+        .part-conf {
+          font-size: 10px;
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        }
         .confidence-note {
           font-size: 12px;
           white-space: nowrap;
+        }
+        .dsi-parts {
+          margin-top: 4px;
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          font-size: 12px;
+          color: var(--text-secondary);
+          font-variant-numeric: tabular-nums;
+          width: fit-content;
+        }
+        .dsi-part {
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+        }
+        .dsi-part-val {
+          white-space: nowrap;
+        }
+        .dsi-parts-plus {
+          color: var(--text-muted);
+          line-height: 1.35;
+        }
+        .dsi-parts-op {
+          color: var(--text-muted);
         }
         /* 설명이 붙어 있다는 신호. 점선 밑줄은 툴팁의 관습적 표시다. */
         .has-tip {

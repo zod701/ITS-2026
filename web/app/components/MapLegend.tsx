@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DSI_VERSIONS } from "../versions";
+import { DSI_VERSIONS, combineAlpha, versionById } from "../versions";
 
 export type Grade = "Safe" | "Caution" | "High-risk";
 export const GRADES: Grade[] = ["Safe", "Caution", "High-risk"];
@@ -30,46 +30,44 @@ export const BUS_ROUTE_COLORS: Record<BusRoute, string> = {
   C: "#2563eb",
 };
 
-const BUS_ROUTE_LABELS: Record<BusRoute, string> = {
-  A: "A 노선",
-  B: "B 노선",
-  C: "C 노선",
-};
-
 // 도로교통공단 TAAS 공개 CSV 의 사고 이력 오버레이. DSI 는 사고가 난 적 없는 구간도 사전
 // 진단하는 지표라 이 둘은 정답지가 아니라 대조군이다.
-export type AccidentLayer = "riskArea" | "hotspot";
-export const ACCIDENT_LAYERS: AccidentLayer[] = ["riskArea", "hotspot"];
+export type AccidentLayer = "fatal" | "serious";
+export const ACCIDENT_LAYERS: AccidentLayer[] = ["fatal", "serious"];
 
 // DSI 등급(초록·노랑·빨강)과 버스 노선(보라·청록·파랑) 어디와도 겹치지 않는 색으로 골랐다.
-// 두 오버레이는 색뿐 아니라 형태로도 갈린다 - 위험지역은 채운 면, 다발지역은 테두리 원.
+// 두 겹은 크기가 같고 색으로만 갈린다 - 중상 196건도 사망 20건과 같은 비중으로 보여야
+// 분포가 읽힌다.
 export const ACCIDENT_COLORS: Record<AccidentLayer, string> = {
-  riskArea: "#92400e",
-  hotspot: "#a21caf",
+  fatal: "#a21caf",
+  serious: "#92400e",
 };
 
 const ACCIDENT_LABELS: Record<AccidentLayer, string> = {
-  riskArea: "위험지역",
-  hotspot: "다발지역",
+  fatal: "사망사고",
+  serious: "중상사고",
 };
 
-// 두 자료의 제공 연도가 다르다 (위험지역 2017~, 다발지역 2018~). public/data 의
-// accident_*.geojson 이 갱신되면 여기도 같이 늘려야 한다.
+// 원시 지점 자료는 2024~25 두 해뿐이다. accident_points_2425.geojson 이 갱신되면
+// 여기도 같이 늘려야 한다.
 export const ACCIDENT_YEARS: Record<AccidentLayer, string[]> = {
-  riskArea: ["2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"],
-  hotspot: ["2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"],
+  fatal: ["2024", "2025"],
+  serious: ["2024", "2025"],
 };
 
 const ACCIDENT_TITLES: Record<AccidentLayer, string> = {
-  riskArea:
-    "링크기반 교통사고 위험지역 (2017~2025, 64건). 시 전역의 사고 밀집구역.",
-  hotspot:
-    "지자체별 교통사고 다발지역 (2018~2025, 24건). 해마다 상위 3구간.",
+  fatal:
+    "TAAS 원시 사고지점 — 사망사고 (2024~25, 20건). 선정 임계 없는 전수 자료.",
+  serious:
+    "TAAS 원시 사고지점 — 중상사고 (2024~25, 196건). 경상은 좌표 미제공이라 빠져 있다.",
 };
 
 interface BusRouteDsiRecord {
   dsi: number;
   n: number;
+  /** α 조절판에만 있는 정적·동적 성분 (versions.ts). */
+  s?: number;
+  d?: number;
 }
 
 type BusRouteDsiMap = Partial<Record<BusRoute | "overall", BusRouteDsiRecord>>;
@@ -78,32 +76,36 @@ interface Props {
   visibleGrades: Record<GradeFilterKey, boolean>;
   onToggleGrade: (key: GradeFilterKey) => void;
   onSetAllGrades: (on: boolean) => void;
-  visibleRoutes: Record<BusRoute, boolean>;
-  onToggleRoute: (key: BusRoute) => void;
   visibleAccident: Record<AccidentLayer, boolean>;
   onToggleAccident: (key: AccidentLayer) => void;
   accidentYears: Record<AccidentLayer, Record<string, boolean>>;
   onToggleAccidentYear: (key: AccidentLayer, year: string) => void;
   onSetAllAccidentYears: (key: AccidentLayer, on: boolean) => void;
   version: string;
+  /** 정적:동적 비중. 조절 가능한 판에서만 슬라이더가 나온다. */
+  alpha: number;
+  onAlphaChange: (a: number) => void;
   onChangeVersion: (id: string) => void;
   style?: React.CSSProperties;
+  /** 패널 오른쪽 끝에 붙일 컨트롤 (버스 노선 버튼). 범례 항목과 같은 줄·같은 높이로 선다. */
+  children?: React.ReactNode;
 }
 
 export default function MapLegend({
   visibleGrades,
   onToggleGrade,
   onSetAllGrades,
-  visibleRoutes,
-  onToggleRoute,
   visibleAccident,
   onToggleAccident,
   accidentYears,
   onToggleAccidentYear,
   onSetAllAccidentYears,
   version,
+  alpha,
+  onAlphaChange,
   onChangeVersion,
   style,
+  children,
 }: Props) {
   const gradeKeys: GradeFilterKey[] = [...GRADES, NO_DATA_KEY];
   const allGradesOn = gradeKeys.every((k) => visibleGrades[k]);
@@ -111,6 +113,11 @@ export default function MapLegend({
   const [collapsed, setCollapsed] = useState(false);
   // 연도 패널은 해당 항목에 마우스를 올리면 열린다. 닫기는 살짝 늦춰야 버튼과 패널 사이를
   // 지나갈 때 깜빡이며 닫히지 않는다(둘 사이 여백은 패널의 padding-top 이 메운다).
+  // 노선 평균도 α 로 다시 합성한다. 성분이 없는 옛 버전은 파일 값을 그대로 쓴다.
+  const routeValue = (r: BusRouteDsiRecord) =>
+    r.s !== undefined && r.d !== undefined ? combineAlpha(r.s, r.d, alpha) : r.dsi;
+  const { alphaAdjustable } = versionById(version);
+
   const [openYears, setOpenYears] = useState<AccidentLayer | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -172,16 +179,41 @@ export default function MapLegend({
             aria-label="파이프라인 버전"
             title="지도 색상·DSI 값·BEV 이미지가 함께 바뀝니다. 버전 간 DSI 값은 정의가 달라 직접 비교할 수 없습니다."
           >
-            {DSI_VERSIONS.map((v, i) => (
+            {DSI_VERSIONS.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.label}
-                {i === 0 ? " (최신)" : ""}
               </option>
             ))}
           </select>
         </div>
 
         <div className="legend-divider" />
+
+        {alphaAdjustable && (
+          <div className="legend-section">
+            {/* α 는 사고 자료로 유도되지 않는 설계 파라미터라(method.md D-21) 값을 하나로
+                박지 않고 직접 움직여 보게 둔다. 바꾸면 도로 색과 등급 임계가 함께 다시
+                계산된다 - 임계는 그 α 의 분포에서 다시 뽑으므로 항상 3등분이 유지된다. */}
+            <div className="legend-heading">
+              정적 비중 α = {alpha.toFixed(2)}
+              <span className="alpha-hint">
+                {" "}
+                정적 {Math.round(alpha * 100)}% · 동적 {Math.round((1 - alpha) * 100)}%
+              </span>
+            </div>
+            <input
+              className="alpha-slider"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={alpha}
+              onChange={(e) => onAlphaChange(Number(e.target.value))}
+              aria-label="정적 비중 알파"
+              title="DSI(정적)와 동적 지수(통행량·주정차)의 비중. 사고 자료로 정해지지 않는 설계값이다."
+            />
+          </div>
+        )}
 
         <div className="legend-section">
           {/* 제목을 누르면 네 등급을 한 번에 껐다 켠다 - 하나만 보려면 전부 끄고 하나만
@@ -212,30 +244,6 @@ export default function MapLegend({
           </div>
         </div>
 
-        <div className="legend-divider" />
-
-        <div className="legend-section">
-          <div className="legend-heading">버스 노선</div>
-          <div className="legend-row">
-            {BUS_ROUTES.map((route) => (
-              <button
-                key={route}
-                className={`legend-item ${visibleRoutes[route] ? "" : "legend-item-off"}`}
-                onClick={() => onToggleRoute(route)}
-                aria-pressed={visibleRoutes[route]}
-              >
-                <span
-                  className="legend-swatch legend-swatch-line"
-                  style={{ background: BUS_ROUTE_COLORS[route] }}
-                />
-                {BUS_ROUTE_LABELS[route]}
-                {routeDsi[route] && (
-                  <span className="legend-dsi">평균 DSI {routeDsi[route]!.dsi.toFixed(2)}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
 
         <div className="legend-divider" />
 
@@ -265,20 +273,14 @@ export default function MapLegend({
                     aria-expanded={openYears === key}
                     title={ACCIDENT_TITLES[key]}
                   >
+                    {/* 지도와 같은 규칙 - 둘 다 같은 크기의 채운 원, 색으로만 구분. */}
                     <span
-                      className={
-                        key === "riskArea"
-                          ? "legend-swatch legend-swatch-fill"
-                          : "legend-swatch legend-swatch-ring"
-                      }
-                      style={
-                        key === "riskArea"
-                          ? {
-                              background: `${ACCIDENT_COLORS[key]}59`,
-                              borderColor: ACCIDENT_COLORS[key],
-                            }
-                          : { borderColor: ACCIDENT_COLORS[key] }
-                      }
+                      className="legend-swatch legend-swatch-fill"
+                      style={{
+                        background: ACCIDENT_COLORS[key],
+                        borderColor: ACCIDENT_COLORS[key],
+                        borderRadius: "50%",
+                      }}
                     />
                     {ACCIDENT_LABELS[key]}
                     <span className="year-caret" aria-hidden="true">
@@ -340,9 +342,16 @@ export default function MapLegend({
         <div className="legend-section">
           <div className="legend-summary">
             전체 포인트 평균 DSI{" "}
-            {routeDsi.overall ? routeDsi.overall.dsi.toFixed(2) : "불러오는 중…"}
+            {routeDsi.overall ? routeValue(routeDsi.overall).toFixed(2) : "불러오는 중…"}
           </div>
         </div>
+
+        {children && (
+          <>
+            <div className="legend-divider" />
+            <div className="legend-section">{children}</div>
+          </>
+        )}
       </div>
 
       <style jsx>{`
@@ -366,6 +375,18 @@ export default function MapLegend({
           flex-direction: row;
           align-items: center;
           gap: 10px;
+        }
+        .alpha-hint {
+          font-weight: 400;
+          text-transform: none;
+          letter-spacing: 0;
+          opacity: 0.65;
+        }
+        .alpha-slider {
+          width: 100%;
+          margin: 6px 0 2px;
+          accent-color: var(--text-muted);
+          cursor: pointer;
         }
         .legend-heading {
           font-size: 11px;

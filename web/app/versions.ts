@@ -31,6 +31,20 @@ export interface DsiVersion {
    */
   poseAxes: 2 | 3;
   bevLayout: BevLayout;
+  /**
+   * BEV 이미지·지점 상세를 가져올 버전. 파이프라인 산출물은 그대로 두고 DSI 값만 다시
+   * 만든 판(예: 동적 지수 결합)이 같은 이미지를 재사용하도록 한다. 없으면 자기 id 를 쓴다.
+   */
+  assetsFrom?: string;
+  /**
+   * α(정적:동적 비중)를 웹에서 조절할 수 있는 판인지. 자료에 `s`(정적)·`d`(동적) 성분이
+   * 실려 있어야 하며, 브라우저가 `dsi = α·s + (1-α)·d` 를 다시 계산하고 등급 임계도
+   * 그때 분포에서 다시 뽑는다 (TAAS/method.md D-21 · D-23).
+   * α 는 사고 자료로 유도되지 않는 **설계 파라미터**라 사용자가 직접 움직여 볼 수 있게 둔다.
+   */
+  alphaAdjustable?: boolean;
+  /** 조절 가능한 판의 초기 α. 없으면 0.35. */
+  alphaDefault?: number;
 }
 
 // 세로 3단 (649x2187): 제목 3줄 아래로 패널이 위→아래.  패널 좌표는 실측값이다
@@ -75,6 +89,84 @@ const LAYOUT_HORIZONTAL_3_1728: BevLayout = {
 // 두 임계값을 그 버전의 분포에서 다시 뽑고, 렌더 형상이 바뀌었으면 패널 좌표까지
 // 실측해 여기 한 항목을 추가한다(첫 항목이 기본값).
 export const DSI_VERSIONS: DsiVersion[] = [
+  {
+    // 프로젝트 목적을 **특수 이벤트 기간의 셔틀 노선 설계**로 한정하면서 만든 판이다.
+    // 파이프라인(BEV·정적 DSI)은 260820 그대로이고, 동적 항의 통행량만 **강릉단오제 기간
+    // 실측**으로 바꿨다. 배율은 연평균이 아니라 축제 창 앞뒤 28일과 비교해 계절 효과를
+    // 통제했다 (TAAS/method.md D-24).
+    //
+    // 두 해를 나눠 둔 이유: 한 해만 보면 그해 특수 상황인지 알 수 없다. 두 판을 견주면
+    // 배율 순위상관 rho +0.725 · 상위 10 중 7개 겹침으로 **축제 효과가 재현**된다.
+    //
+    // 정규화 기준점과 등급 임계를 **평시판(260820_2)과 공유**하므로 세 판을 직접 비교할 수
+    // 있다. 판마다 따로 정규화하면 축제로 통행량이 올라가도 각자 0~1 로 다시 펴지며 상승분이
+    // 상쇄된다 — 그 상태에서는 도로 순위상관이 0.9992 였다.
+    id: "danoje_2026",
+    label: "2026년 강릉단오제",
+    // 아래 두 값은 격자(terciles_grid.json)를 못 받았을 때의 폴백이다. 실제 등급은
+    // 기준판 격자에서 온다 — 그래서 이 판의 High-risk 도로는 3분의 1이 아니라 38.1% 다.
+    pointTerciles: [0.3041, 0.4654],
+    roadTerciles: [0.3812, 0.5156],
+    poseAxes: 2,
+    bevLayout: LAYOUT_HORIZONTAL_3_1728,
+    assetsFrom: "260820",
+    alphaAdjustable: true,
+    alphaDefault: 0.35,
+  },
+  {
+    // 프로젝트 목적을 **특수 이벤트 기간의 셔틀 노선 설계**로 한정하면서 만든 판이다.
+    // 파이프라인(BEV·정적 DSI)은 260820 그대로이고, 동적 항의 통행량만 **강릉단오제 기간
+    // 실측**으로 바꿨다. 배율은 연평균이 아니라 축제 창 앞뒤 28일과 비교해 계절 효과를
+    // 통제했다 (TAAS/method.md D-24).
+    //
+    // 두 해를 나눠 둔 이유: 한 해만 보면 그해 특수 상황인지 알 수 없다. 두 판을 견주면
+    // 배율 순위상관 rho +0.725 · 상위 10 중 7개 겹침으로 **축제 효과가 재현**된다.
+    //
+    // 정규화 기준점과 등급 임계를 **평시판(260820_2)과 공유**하므로 세 판을 직접 비교할 수
+    // 있다. 판마다 따로 정규화하면 축제로 통행량이 올라가도 각자 0~1 로 다시 펴지며 상승분이
+    // 상쇄된다 — 그 상태에서는 도로 순위상관이 0.9992 였다.
+    id: "danoje_2025",
+    label: "2025년 강릉단오제",
+    // 아래 두 값은 격자(terciles_grid.json)를 못 받았을 때의 폴백이다. 실제 등급은
+    // 기준판 격자에서 온다 — 그래서 이 판의 High-risk 도로는 3분의 1이 아니라 39.3% 다.
+    pointTerciles: [0.3041, 0.4654],
+    roadTerciles: [0.3812, 0.5156],
+    poseAxes: 2,
+    bevLayout: LAYOUT_HORIZONTAL_3_1728,
+    assetsFrom: "260820",
+    alphaAdjustable: true,
+    alphaDefault: 0.35,
+  },
+  {
+    // 파이프라인은 260820 그대로이고, 정적 DSI 에 **동적 지수를 결합**한 판이다
+    // (TAAS/method.md D-17 · D-18). 지점마다
+    //   DSI_t = α·DSI_static + (1-α)·(β·V_norm + (1-β)·P_resid)
+    //
+    // β = 0.398 은 **원시 사고지점 자료**(TAAS 2024~25 중상 이상 216건)로 유도했다
+    // (D-20 · X-25). 포아송 계수 통행량 +0.929 / 초과차폐 +1.409 → 주정차 대리가 통행량보다
+    // 크다. 절단 자료로 뽑았던 0.720 을 대체한다.
+    //
+    // α = 0.35 는 **자료로 유도한 값이 아니다** (D-21). 같은 모형에서 DSI 계수가 음수로
+    // 나와 비율이 성립하지 않는다 — 중상 이상 사고는 간선 교차로에서 나고 DSI 는 그런 곳을
+    // 안전하게 평가한다(X-13). α 는 설계 시나리오 0.20/0.35/0.50 의 대표값이며, 구간 끝단
+    // 사이에서 상위 10% 의 절반가량이 교체된다.
+    //
+    // V_norm 은 계측 교차로 75개의 진입량을 차수로 나눠 IDW(k=5,p=1)로 보간한 **근사치**이고
+    // (LOO R² 0.123), 예측이 아니라 결합 구조의 개념검증(PoC)이다. 계측점 1km 초과 지점
+    // (1.5%)은 정적값만 쓴다.
+    //
+    // 척도가 다르다 — 0~1 정규화라 260820 의 1.15~1.89 와 직접 비교할 수 없다.
+    // BEV 이미지·지점 상세는 파이프라인 산출물이라 260820 것을 그대로 쓴다(assetsFrom).
+    id: "260820_2",
+    label: "26.08.20 (2차)",
+    pointTerciles: [0.3041, 0.4654],
+    roadTerciles: [0.3811, 0.5155],
+    poseAxes: 2,
+    bevLayout: LAYOUT_HORIZONTAL_3_1728,
+    assetsFrom: "260820",
+    alphaAdjustable: true,
+    alphaDefault: 0.35,
+  },
   {
     // Drive 폴더명·로컬 산출물 모두 260820.
     // D-06 으로 차폐 도메인이 중심선 길이(m) -> 도로면 면적(m2) 으로 바뀌었다. 그 결과
@@ -159,6 +251,42 @@ export const DEFAULT_DSI_VERSION = DSI_VERSIONS[0].id;
 
 export function versionById(id: string): DsiVersion {
   return DSI_VERSIONS.find((v) => v.id === id) ?? DSI_VERSIONS[0];
+}
+
+export const DEFAULT_ALPHA = 0.35;
+
+/** 성분에서 합성한 결합 지수. 정적전용 지점은 s === d 라 α 와 무관하게 같은 값이 나온다. */
+export function combineAlpha(s: number, d: number, alpha: number): number {
+  return alpha * s + (1 - alpha) * d;
+}
+
+/**
+ * 판 간 비교용 공통 임계 격자 (`terciles_grid.json`).
+ * α 별로 임계를 두되 **항상 기준판(평시) 분포에서 뽑은 값**이라, 같은 α 에서는 모든 판이
+ * 같은 잣대를 쓴다. 그래야 "축제판이 평시판보다 High-risk 가 많다" 같은 서술이 성립한다.
+ * 판마다 자기 분포에서 뽑으면 어느 판이든 항상 3등분이 되어 비교가 불가능하다 (D-24).
+ */
+export interface TercileGrid {
+  road: Record<string, [number, number]>;
+  point: Record<string, [number, number]>;
+}
+
+export function gridTerciles(
+  grid: TercileGrid | null,
+  kind: "road" | "point",
+  alpha: number
+): [number, number] | null {
+  if (!grid) return null;
+  const key = (Math.round(alpha / 0.05) * 0.05).toFixed(2);
+  return grid[kind]?.[key] ?? null;
+}
+
+/** 격자가 없는 옛 판을 위한 폴백. 자기 분포에서 3분위를 뽑는다. */
+export function tercilesOf(values: number[]): [number, number] {
+  if (values.length === 0) return [0, 1];
+  const v = [...values].sort((a, b) => a - b);
+  const at = (q: number) => v[Math.min(v.length - 1, Math.floor(q * v.length))];
+  return [at(1 / 3), at(2 / 3)];
 }
 
 export function gradeFromDsi(dsi: number, terciles: [number, number]): Grade {
