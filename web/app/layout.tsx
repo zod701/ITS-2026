@@ -10,7 +10,7 @@ const gowunBatang = Gowun_Batang({
 });
 
 export const metadata: Metadata = {
-  title: "[5kph] 강릉 DSI 지도",
+  title: "[5kph] 강릉 ITS 세계총회 아이디어 공모전",
   description: "강릉시 도로 스트리트뷰 지점 및 분석 진행 현황",
 };
 

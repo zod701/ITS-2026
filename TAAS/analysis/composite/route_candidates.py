@@ -109,7 +109,7 @@ def build_graph():
 
     print(f"[망] 노드 {len(xy):,} 엣지 {len(li):,} "
           f"-> DSI {MATCH_M:.0f}m 매칭 {keep.sum():,} ({keep.mean()*100:.1f}%)")
-    return xy, li[keep], lj[keep], lw[keep], edge_dsi[keep]
+    return xy, li[keep], lj[keep], lw[keep], edge_dsi[keep], eids[keep]
 
 
 def dijkstra(n, adj, src, dst, mult):
@@ -143,7 +143,7 @@ def dijkstra(n, adj, src, dst, mult):
 
 
 def main():
-    xy, li, lj, lw, edsi = build_graph()
+    xy, li, lj, lw, edsi, eids = build_graph()
     m = len(li)
     adj = defaultdict(list)
     for k in range(m):
@@ -324,6 +324,41 @@ def main():
                                 ensure_ascii=False), encoding="utf-8")
     shared = sum(1 for v in ranks_of.values() if len(v) > 1)
     print(f"-> {spath}  (고유 {len(stop_feats)}개소, 둘 이상 공유 {shared}개소)")
+
+    # 노선은 한 판(SELECT)에서 뽑았지만, 웹은 어느 판으로도 볼 수 있어야 한다. 같은 경로를
+    # 판마다 다시 재어 bus_route_dsi_<판>.json 과 같은 꼴로 낸다 - 웹이 A/B/C 를 다루는
+    # 방식(성분 s·d 를 받아 α 로 합성)을 그대로 쓰면 슬라이더가 실시간으로 먹는다.
+    # 성분이 없는 옛 판은 s = d = dsi 로 둔다. 그러면 α 와 무관하게 그 판의 값이 나온다.
+    print()
+    for path_v in sorted((WEB).glob("road_dsi_map_*.json")):
+        v = path_v.name[len("road_dsi_map_"):-len(".json")]
+        table = json.loads(path_v.read_text(encoding="utf-8"))
+        out_v = {}
+        for rank, c in enumerate(top, 1):
+            ns = nd = den = 0.0
+            for e in c["edges"]:
+                rec = table.get(eids[e])
+                if rec is None:
+                    continue                      # 이 판에는 그 도로의 값이 없다
+                L = float(lw[e])
+                ns += float(rec.get("s", rec["dsi"])) * L
+                nd += float(rec.get("d", rec["dsi"])) * L
+                den += L
+            if den == 0:
+                continue
+            out_v[str(rank)] = {
+                "s": round(ns / den, 4),
+                "d": round(nd / den, 4),
+                "dsi": round(combine_alpha(ns / den, nd / den, ALPHA), 4),
+                # 이 판이 값을 가진 구간의 길이 비율. 낮으면 평균이 노선 일부만 대표한다.
+                "coverage": round(den / c["length_m"], 3),
+            }
+        vpath = WEB / f"route_candidate_dsi_{v}.json"
+        vpath.write_text(json.dumps(out_v, ensure_ascii=False), encoding="utf-8")
+        cov = min((r["coverage"] for r in out_v.values()), default=0)
+        print(f"-> {vpath.name}  " +
+              " / ".join(f"{k}위 {r['dsi']:.4f}" for k, r in out_v.items()) +
+              f"   (최소 커버리지 {cov*100:.0f}%)")
 
 
 if __name__ == "__main__":

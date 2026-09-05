@@ -128,9 +128,10 @@ main {
 
 /* 켜진 후보 노선이 지나는 정류장의 이름표. 랜드마크 이름표와 같은 방식(배경·꼬리 없이
    글자에 테두리만)이되 한 단계 작고 옅어, 두 거점 이름과 경유지가 구분된다.
-   .hide-stop-labels 는 MapView 가 줌에 따라 지도 컨테이너에 붙인다 — 도시 전체가 보이는
-   줌에서 25개 이름이 한꺼번에 뜨면 서로 겹쳐 읽을 수 없다. */
+   기본은 감춤이고, 경유 정류장 아무 점에나 마우스를 올리면 MapView 가 지도 컨테이너에
+   .show-stop-labels 를 붙여 켜져 있는 이름을 한꺼번에 드러낸다. */
 .leaflet-tooltip.candidate-stop-label {
+  display: none;
   background: none;
   border: none;
   box-shadow: none;
@@ -150,6 +151,6 @@ main {
   display: none;
 }
 
-.hide-stop-labels .leaflet-tooltip.candidate-stop-label {
-  display: none;
+.show-stop-labels .leaflet-tooltip.candidate-stop-label {
+  display: block;
 }

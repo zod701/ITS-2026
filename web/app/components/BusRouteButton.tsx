@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { combineAlpha } from "../versions";
 import {
   BUS_ROUTES,
@@ -22,7 +22,19 @@ const BUS_ROUTE_LABELS: Record<BusRoute, string> = {
   C: "C 노선",
 };
 
-// route_candidates.geojson 의 properties. 지도에는 선만 그리고 수치는 여기 적는다.
+/** 정적·동적 성분이 실린 판에서는 α 로 다시 합성한다. 없으면 파일의 dsi 를 그대로 쓴다. */
+interface DsiParts {
+  dsi: number;
+  s?: number;
+  d?: number;
+}
+
+/** route_candidate_dsi_<판>.json — 키는 순위 문자열("1"·"2"·"3"). */
+type CandidateDsiMap = Record<string, DsiParts & { coverage: number }>;
+
+// route_candidates.geojson 의 properties. 판·α 와 무관한 값(길이·정류장 수)만 여기서 읽고,
+// 위험도는 판별 파일에서 따로 받는다 - 노선은 한 판에서 뽑았지만 어느 판으로도 다시 잴 수
+// 있어야 한다. mean_dsi 는 그 판별 파일이 없을 때의 대비책이다.
 interface CandidateRecord {
   rank: RouteCandidate;
   length_km: number;
@@ -31,15 +43,26 @@ interface CandidateRecord {
   share_highrisk: number;
 }
 
-interface BusRouteDsiRecord {
-  dsi: number;
-  n: number;
-  /** 정적·동적 성분. 실린 판에서는 α 로 다시 합성한다. */
-  s?: number;
-  d?: number;
+/**
+ * 후보 스와치 배경. 지도의 파선 무늬(SVG dashArray)를 그대로 받아 CSS 반복 그라디언트로
+ * 옮기므로, 무늬를 바꿔도 범례와 지도가 어긋나지 않는다. 스와치 폭이 22px 뿐이라 지도의
+ * 절반 간격으로 줄여야 파선이 두 마디 이상 보인다.
+ *
+ * background(단축) 하나만 쓴다 — backgroundImage 와 background 를 같은 style 객체에 함께
+ * 두면, React 가 undefined 인 쪽을 빈 문자열로 되돌리면서 단축 속성이 앞서 세운 이미지를
+ * 지워 파선이 통째로 사라진다.
+ */
+function swatchBackground(rank: RouteCandidate): string {
+  const dash = ROUTE_CANDIDATE_DASH[rank];
+  if (!dash) return ROUTE_CANDIDATE_COLOR;
+  const [on, off] = dash.split(" ").map((v) => Number(v) / 2);
+  return (
+    `repeating-linear-gradient(90deg, ${ROUTE_CANDIDATE_COLOR} 0 ${on}px, ` +
+    `transparent ${on}px ${on + off}px)`
+  );
 }
 
-type BusRouteDsiMap = Partial<Record<BusRoute | "overall", BusRouteDsiRecord>>;
+type BusRouteDsiMap = Partial<Record<BusRoute | "overall", DsiParts & { n: number }>>;
 
 interface Props {
   visibleRoutes: Record<BusRoute, boolean>;
@@ -69,7 +92,7 @@ export default function BusRouteButton({
   const [open, setOpen] = useState(false);
   const [routeDsi, setRouteDsi] = useState<BusRouteDsiMap>({});
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
-  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [candidateDsi, setCandidateDsi] = useState<CandidateDsiMap>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -99,32 +122,48 @@ export default function BusRouteButton({
     };
   }, []);
 
-  // 지도를 보려고 누른 것이므로 바깥을 클릭하거나 Esc 를 누르면 닫는다.
+  // 후보 위험도도 판마다 다르므로 노선 A/B/C 와 같은 방식으로 판을 따라간다.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/data/route_candidate_dsi_${version}.json`)
+      .then((res) => res.json())
+      .then((data: CandidateDsiMap) => {
+        if (!cancelled) setCandidateDsi(data);
+      })
+      .catch(() => {
+        if (!cancelled) setCandidateDsi({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  // 바깥을 클릭해도 닫지 않는다 - 패널을 켜 둔 채로 지도를 눌러 지점을 살피거나 다른
+  // 패널과 견주는 쓰임이라, 지도를 한 번 누를 때마다 닫히면 매번 다시 열어야 한다.
+  // 닫는 길은 같은 버튼을 다시 누르는 것(과 Esc)뿐이다.
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!hostRef.current?.contains(e.target as Node)) setOpen(false);
-    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
-    document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const routeValue = (r: BusRouteDsiRecord) =>
+  const dsiValue = (r: DsiParts) =>
     r.s !== undefined && r.d !== undefined ? combineAlpha(r.s, r.d, alpha) : r.dsi;
+  /** 선택된 판·α 로 다시 잰 후보 위험도. 그 판의 파일이 없으면 뽑을 때의 값으로 물러난다. */
+  const candidateValue = (c: CandidateRecord) => {
+    const rec = candidateDsi[String(c.rank)];
+    return rec ? dsiValue(rec) : c.mean_dsi;
+  };
   const anyOn =
     BUS_ROUTES.some((r) => visibleRoutes[r]) ||
     showStops ||
     ROUTE_CANDIDATES.some((r) => visibleCandidates[r]);
 
   return (
-    <div className="bus-host" ref={hostRef}>
+    <div className="bus-host">
       <button
         className={`bus-btn ${anyOn ? "bus-btn-on" : ""}`}
         onClick={() => setOpen((v) => !v)}
@@ -157,7 +196,7 @@ export default function BusRouteButton({
                   />
                   <span className="bus-label">{BUS_ROUTE_LABELS[route]}</span>
                   <span className="bus-dsi">
-                    {rec ? `평균 DSI ${routeValue(rec).toFixed(2)}` : "—"}
+                    {rec ? `평균 위험도 ${dsiValue(rec).toFixed(2)}` : "—"}
                   </span>
                 </button>
               );
@@ -184,7 +223,10 @@ export default function BusRouteButton({
             <>
               <div className="bus-sep" />
               <div className="bus-panel-head">
-                제안 노선 <span className="bus-sub">전수교육관 ↔ 강릉역 · 2026 단오제 · α 0.35</span>
+                제안 노선{" "}
+                <span className="bus-sub">
+                  전수교육관 ↔ 강릉역 · 2026 단오제판 α 0.35 로 선정
+                </span>
               </div>
               <div className="bus-list">
                 {candidates.map((c) => (
@@ -194,30 +236,19 @@ export default function BusRouteButton({
                     onClick={() => onToggleCandidate(c.rank)}
                     aria-pressed={visibleCandidates[c.rank]}
                     title={
-                      `${c.length_km}km · 평균 DSI ${c.mean_dsi.toFixed(3)} · ` +
+                      `${c.length_km}km · 평균 위험도 ${candidateValue(c).toFixed(3)} · ` +
                       `High-risk 구간 ${Math.round(c.share_highrisk * 100)}% · ` +
                       `정류장 ${c.n_stops}개소`
                     }
                   >
                     <span
                       className="bus-swatch bus-swatch-dash"
-                      style={{
-                        backgroundImage: ROUTE_CANDIDATE_DASH[c.rank]
-                          ? `repeating-linear-gradient(90deg, ${ROUTE_CANDIDATE_COLOR} 0 ${
-                              c.rank === 2 ? "6px" : "2px"
-                            }, transparent ${c.rank === 2 ? "6px" : "2px"} ${
-                              c.rank === 2 ? "10px" : "5px"
-                            })`
-                          : undefined,
-                        background: ROUTE_CANDIDATE_DASH[c.rank]
-                          ? undefined
-                          : ROUTE_CANDIDATE_COLOR,
-                      }}
+                      style={{ background: swatchBackground(c.rank) }}
                     />
                     <span className="bus-label">
                       {c.rank}순위 <span className="bus-sub">{c.length_km}km</span>
                     </span>
-                    <span className="bus-dsi">평균 DSI {c.mean_dsi.toFixed(2)}</span>
+                    <span className="bus-dsi">평균 위험도 {candidateValue(c).toFixed(2)}</span>
                   </button>
                 ))}
               </div>

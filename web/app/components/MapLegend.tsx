@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { DSI_VERSIONS, combineAlpha, versionById } from "../versions";
 
 export type Grade = "Safe" | "Caution" | "High-risk";
@@ -69,7 +69,7 @@ export const ACCIDENT_COLORS: Record<AccidentLayer, string> = {
   serious: "#92400e",
 };
 
-const ACCIDENT_LABELS: Record<AccidentLayer, string> = {
+export const ACCIDENT_LABELS: Record<AccidentLayer, string> = {
   fatal: "사망사고",
   serious: "중상사고",
 };
@@ -81,7 +81,7 @@ export const ACCIDENT_YEARS: Record<AccidentLayer, string[]> = {
   serious: ["2024", "2025"],
 };
 
-const ACCIDENT_TITLES: Record<AccidentLayer, string> = {
+export const ACCIDENT_TITLES: Record<AccidentLayer, string> = {
   fatal:
     "TAAS 원시 사고지점 — 사망사고 (2024~25, 20건). 선정 임계 없는 전수 자료.",
   serious:
@@ -102,11 +102,6 @@ interface Props {
   visibleGrades: Record<GradeFilterKey, boolean>;
   onToggleGrade: (key: GradeFilterKey) => void;
   onSetAllGrades: (on: boolean) => void;
-  visibleAccident: Record<AccidentLayer, boolean>;
-  onToggleAccident: (key: AccidentLayer) => void;
-  accidentYears: Record<AccidentLayer, Record<string, boolean>>;
-  onToggleAccidentYear: (key: AccidentLayer, year: string) => void;
-  onSetAllAccidentYears: (key: AccidentLayer, on: boolean) => void;
   version: string;
   /** 정적:동적 비중. 조절 가능한 판에서만 슬라이더가 나온다. */
   alpha: number;
@@ -121,11 +116,6 @@ export default function MapLegend({
   visibleGrades,
   onToggleGrade,
   onSetAllGrades,
-  visibleAccident,
-  onToggleAccident,
-  accidentYears,
-  onToggleAccidentYear,
-  onSetAllAccidentYears,
   version,
   alpha,
   onAlphaChange,
@@ -137,27 +127,10 @@ export default function MapLegend({
   const allGradesOn = gradeKeys.every((k) => visibleGrades[k]);
   const [routeDsi, setRouteDsi] = useState<BusRouteDsiMap>({});
   const [collapsed, setCollapsed] = useState(false);
-  // 연도 패널은 해당 항목에 마우스를 올리면 열린다. 닫기는 살짝 늦춰야 버튼과 패널 사이를
-  // 지나갈 때 깜빡이며 닫히지 않는다(둘 사이 여백은 패널의 padding-top 이 메운다).
   // 노선 평균도 α 로 다시 합성한다. 성분이 없는 옛 버전은 파일 값을 그대로 쓴다.
   const routeValue = (r: BusRouteDsiRecord) =>
     r.s !== undefined && r.d !== undefined ? combineAlpha(r.s, r.d, alpha) : r.dsi;
   const { alphaAdjustable } = versionById(version);
-
-  const [openYears, setOpenYears] = useState<AccidentLayer | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openYearPanel = (key: AccidentLayer) => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    setOpenYears(key);
-  };
-  const closeYearPanel = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => setOpenYears(null), 160);
-  };
-  useEffect(() => () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-  }, []);
 
   // 평균 DSI 도 버전마다 값이 다르므로 등급 색과 같은 버전을 따라간다.
   useEffect(() => {
@@ -250,7 +223,7 @@ export default function MapLegend({
             aria-pressed={allGradesOn}
             title={allGradesOn ? "전체 해제" : "전체 선택"}
           >
-            도로 위험도 (DSI)
+            도로 위험도
           </button>
           <div className="legend-row">
             {gradeKeys.map((key) => (
@@ -274,100 +247,8 @@ export default function MapLegend({
         <div className="legend-divider" />
 
         <div className="legend-section">
-          <div className="legend-heading" title="도로교통공단 TAAS 공개 자료">
-            사고 이력
-          </div>
-          <div className="legend-row">
-            {ACCIDENT_LAYERS.map((key) => {
-              const years = ACCIDENT_YEARS[key];
-              return (
-                <div
-                  key={key}
-                  className="year-host"
-                  onMouseEnter={() => openYearPanel(key)}
-                  onMouseLeave={closeYearPanel}
-                  onFocus={() => openYearPanel(key)}
-                  onBlur={closeYearPanel}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setOpenYears(null);
-                  }}
-                >
-                  <button
-                    className={`legend-item ${visibleAccident[key] ? "" : "legend-item-off"}`}
-                    onClick={() => onToggleAccident(key)}
-                    aria-pressed={visibleAccident[key]}
-                    aria-expanded={openYears === key}
-                    title={ACCIDENT_TITLES[key]}
-                  >
-                    {/* 지도와 같은 규칙 - 둘 다 같은 크기의 채운 원, 색으로만 구분. */}
-                    <span
-                      className="legend-swatch legend-swatch-fill"
-                      style={{
-                        background: ACCIDENT_COLORS[key],
-                        borderColor: ACCIDENT_COLORS[key],
-                        borderRadius: "50%",
-                      }}
-                    />
-                    {ACCIDENT_LABELS[key]}
-                    <span className="year-caret" aria-hidden="true">
-                      ▾
-                    </span>
-                  </button>
-
-                  {openYears === key && (
-                    <div className="year-panel">
-                      <div className="year-panel-card">
-                        <div className="year-panel-head">
-                          <span>연도</span>
-                          <span className="year-panel-actions">
-                            <button
-                              className="year-action"
-                              onClick={() => onSetAllAccidentYears(key, true)}
-                            >
-                              전체
-                            </button>
-                            <button
-                              className="year-action"
-                              onClick={() => onSetAllAccidentYears(key, false)}
-                            >
-                              해제
-                            </button>
-                          </span>
-                        </div>
-                        <div className="year-grid">
-                          {years.map((y) => (
-                            <button
-                              key={y}
-                              className={`year-chip ${accidentYears[key][y] ? "year-chip-on" : ""}`}
-                              onClick={() => onToggleAccidentYear(key, y)}
-                              aria-pressed={accidentYears[key][y]}
-                              style={
-                                accidentYears[key][y]
-                                  ? {
-                                      background: ACCIDENT_COLORS[key],
-                                      borderColor: ACCIDENT_COLORS[key],
-                                    }
-                                  : undefined
-                              }
-                            >
-                              {y.slice(2)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="legend-divider" />
-
-        <div className="legend-section">
           <div className="legend-summary">
-            전체 포인트 평균 DSI{" "}
+            도로 위험도 평균{" "}
             {routeDsi.overall ? routeValue(routeDsi.overall).toFixed(2) : "불러오는 중…"}
           </div>
         </div>
@@ -518,102 +399,10 @@ export default function MapLegend({
           border-radius: 2px;
           box-shadow: 0 0 0 1.5px #111827;
         }
-        /* 사고 이력 오버레이는 지도에서도 면 / 테두리 원으로 그려지므로 견본도 같은 형태로
-           둔다 - 색만 다른 사각형 두 개면 어느 쪽이 어느 레이어인지 범례만 보고는 모른다. */
-        .legend-swatch-fill {
-          border: 1.5px solid;
-        }
         .legend-swatch-ring {
           background: none;
           border: 2.5px solid;
           border-radius: 50%;
-        }
-
-        /* 연도 패널: 항목에 올리면 그 아래로 열린다. .year-panel 자체의 padding-top 이
-           버튼과 카드 사이의 여백을 메워, 마우스가 그 틈을 지날 때 hover 가 끊기지 않는다. */
-        .year-host {
-          position: relative;
-          display: flex;
-          align-items: center;
-        }
-        .year-caret {
-          font-size: 9px;
-          color: var(--text-muted);
-          margin-left: 1px;
-        }
-        .year-panel {
-          position: absolute;
-          top: 100%;
-          left: 0;
-          padding-top: 6px;
-          z-index: 1100;
-        }
-        .year-panel-card {
-          background: var(--panel-bg);
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          padding: 8px 10px 9px;
-          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
-          display: flex;
-          flex-direction: column;
-          gap: 7px;
-        }
-        .year-panel-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 14px;
-          font-size: 10px;
-          font-weight: 600;
-          letter-spacing: 0.03em;
-          color: var(--text-muted);
-          text-transform: uppercase;
-        }
-        .year-panel-actions {
-          display: flex;
-          gap: 6px;
-        }
-        .year-action {
-          border: none;
-          background: none;
-          padding: 0;
-          font: inherit;
-          font-size: 10px;
-          text-transform: none;
-          letter-spacing: 0;
-          color: var(--link-color);
-          cursor: pointer;
-        }
-        .year-action:hover {
-          text-decoration: underline;
-        }
-        .year-grid {
-          display: grid;
-          grid-template-columns: repeat(5, 1fr);
-          gap: 4px;
-        }
-        .year-chip {
-          border: 1px solid var(--border-color);
-          background: none;
-          color: var(--foreground);
-          font-family: inherit;
-          font-size: 11px;
-          font-variant-numeric: tabular-nums;
-          padding: 3px 0;
-          min-width: 28px;
-          border-radius: 5px;
-          cursor: pointer;
-        }
-        .year-chip:hover {
-          border-color: var(--link-color);
-        }
-        .year-chip-on {
-          color: #fff;
-        }
-        .year-chip:focus-visible,
-        .year-action:focus-visible {
-          outline: 2px solid var(--link-color);
-          outline-offset: 1px;
         }
         /* 데스크탑: 접기 버튼은 없고, 래퍼는 레이아웃에서 투명(display:contents)해서
            자식들이 그대로 .map-legend의 flex 아이템이 된다 -> 기존과 동일한 배치. */

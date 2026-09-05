@@ -111,9 +111,6 @@ interface CandidateStopFeature {
   properties: { name: string; addr: string; ranks: RouteCandidate[] };
 }
 
-/** 경유 정류장 이름표를 띄우기 시작하는 줌. 이보다 넓게 보면 이름이 서로 겹친다. */
-const STOP_LABEL_ZOOM = 15;
-
 // TAAS 원시 사고지점 오버레이 (2024~25 중상 이상 216건). 좌표계는 WGS84.
 // 종전의 위험지역/다발지역 폴리곤은 사고 4건·9건 이상만 수록된 **선정 구역**이라
 // 절단 자료였다 (TAAS/method.md X-24). 원시 지점으로 대체했다.
@@ -142,6 +139,8 @@ interface Props {
   showStops: boolean;
   /** 위험도 최소 경로 후보(rank 1~3) 중 켜 둘 것. */
   visibleCandidates: Record<RouteCandidate, boolean>;
+  /** 표시를 끈 거점 이름. 비어 있으면 전부 보임 (page.tsx). */
+  hiddenLandmarks: Record<string, boolean>;
   visibleAccident: Record<AccidentLayer, boolean>;
   /** 레이어별로 켜 둔 연도. 레이어가 켜져 있어도 여기 없는 연도는 그리지 않는다. */
   accidentYears: Record<AccidentLayer, Record<string, boolean>>;
@@ -160,6 +159,28 @@ function isDarkTheme(): boolean {
   if (attr === "light") return false;
   if (attr === "dark") return true;
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+/**
+ * 점 표식의 속살·테두리 색. 밝은 배경에서는 짙은 속살이 점을 드러내고 흰 테두리가 도로선과
+ * 떼어 놓는데, 어두운 배경에서는 그 짙은 속살이 배경에 묻혀 얇은 흰 테두리만 남는다.
+ * 그래서 다크모드에서는 둘을 **맞바꾼다** — 흰 속살이 점을 드러내고, 고유색이 테두리로
+ * 물러나 어느 층의 표식인지는 그대로 알려준다.
+ */
+function markerPaint(identity: string, dark: boolean) {
+  return dark
+    ? { fillColor: "#ffffff", color: identity }
+    : { fillColor: identity, color: "#ffffff" };
+}
+
+/**
+ * 경유 정류장만은 두 테마 모두 속살을 노선색으로 둔다. 이 점은 '켜 둔 후보가 지나는 자리'를
+ * 가리키므로 노선 선과 같은 색으로 채워져야 어느 선의 정류장인지 읽힌다 - 흰 속살로 뒤집으면
+ * 361개 일반 정류장과 같은 배색이 되어 구분이 사라진다. 어두운 배경에서는 흰 테두리가
+ * 점을 드러내는 몫을 맡는다.
+ */
+function candidateStopPaint() {
+  return { fillColor: ROUTE_CANDIDATE_COLOR, color: "#ffffff" };
 }
 
 // 배경지도는 두 테마 모두 CARTO 무채색 타일을 쓴다. 기본 OSM 타일은 산이 초록, 물이 파랑,
@@ -210,6 +231,7 @@ export default function MapView({
   visibleRoutes,
   showStops,
   visibleCandidates,
+  hiddenLandmarks,
   visibleAccident,
   accidentYears,
   version,
@@ -255,9 +277,19 @@ export default function MapView({
   const visibleCandidatesRef = useRef(visibleCandidates);
   const applyCandidateFilterRef = useRef<() => void>(() => {});
   const applyCandidateStopFilterRef = useRef<() => void>(() => {});
+  const hiddenLandmarksRef = useRef(hiddenLandmarks);
+  const applyLandmarkFilterRef = useRef<() => void>(() => {});
   // 레이어가 다섯 갈래로 각자 비동기 도착하므로, 어느 것이 늦게 붙든 순서를 여기서 한 번에
   // 다시 세운다. 아래에서 위로: 도로 → 노선 A/B/C → 후보 노선 → 정류장 → 경유 정류장 →
   // 랜드마크 → 사고. 정류장을 노선보다 위에 두어 노선 선이 정류장 점을 덮지 않게 한다.
+  // 테마가 바뀌면 배경 타일과 함께 점 표식도 다시 칠한다 (markerPaint).
+  const repaintMarkersRef = useRef<() => void>(() => {});
+  repaintMarkersRef.current = () => {
+    const dark = isDarkTheme();
+    busStopsLayerRef.current?.setStyle(markerPaint(BUS_STOP_COLOR, dark));
+    candidateStopsLayerRef.current?.setStyle(candidateStopPaint());
+    landmarksLayerRef.current?.setStyle(markerPaint(LANDMARK_COLOR, dark));
+  };
   const restackRef = useRef<() => void>(() => {});
   restackRef.current = () => {
     busRouteLayersRef.current.forEach((layer) => layer.bringToFront());
@@ -389,6 +421,11 @@ export default function MapView({
   }, [visibleCandidates]);
 
   useEffect(() => {
+    hiddenLandmarksRef.current = hiddenLandmarks;
+    applyLandmarkFilterRef.current();
+  }, [hiddenLandmarks]);
+
+  useEffect(() => {
     visibleAccidentRef.current = visibleAccident;
     applyAccidentFilterRef.current();
   }, [visibleAccident]);
@@ -475,14 +512,9 @@ export default function MapView({
         attribution: TILE_ATTRIBUTION,
         maxZoom: 19,
       }).addTo(map);
+      repaintMarkersRef.current();
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-
-    const syncLabelZoom = () => {
-      map.getContainer().classList.toggle("hide-stop-labels", map.getZoom() < STOP_LABEL_ZOOM);
-    };
-    map.on("zoomend", syncLabelZoom);
-    syncLabelZoom();
 
     let points: PointFeature[] = [];
 
@@ -631,8 +663,10 @@ export default function MapView({
       });
 
     // 켜진 후보가 지나는 정류장. 후보 선과 같은 색으로 칠해 어느 선의 정류장인지 바로
-    // 읽히게 하고, 이름표는 줌이 STOP_LABEL_ZOOM 이상일 때만 띄운다 - 도시 전체가 보이는
-    // 기본 줌에서 25개 이름이 한꺼번에 뜨면 서로 겹쳐 아무것도 못 읽는다.
+    // 읽히게 한다. 이름표는 **기본으로 감추고**, 이 중 아무 점에나 마우스를 올리면 그때
+    // 켜져 있는 경유 정류장 이름이 한꺼번에 뜬다 - 노선이 어디를 훑는지는 이름 하나가
+    // 아니라 이름의 배열로 읽히므로, 하나만 띄우면 오히려 쓸모가 없다. 상시로 띄우면
+    // 25개가 서로 겹쳐 아무것도 못 읽는다.
     fetch("/data/route_candidate_stops.geojson")
       .then((res) => res.json())
       .catch(() => null)
@@ -642,20 +676,27 @@ export default function MapView({
           pointToLayer: (_feature, latlng) =>
             L.circleMarker(latlng, {
               radius: 6,
-              color: "#ffffff",
               weight: 1.8,
               opacity: 1,
-              fillColor: ROUTE_CANDIDATE_COLOR,
               fillOpacity: 1,
+              ...candidateStopPaint(),
             }),
-          onEachFeature: (feature, layer) => {
+          onEachFeature: (feature, marker) => {
             const p = (feature as unknown as CandidateStopFeature).properties;
-            layer.bindTooltip(p.name, {
+            // permanent 로 붙여 두고 보이고 감추는 일은 CSS 에 맡긴다 - 마우스가 옮겨다닐
+            // 때마다 25개를 열고 닫으면 이름표가 깜빡인다.
+            marker.bindTooltip(p.name, {
               permanent: true,
               direction: "right",
               offset: [8, 0],
               className: "candidate-stop-label",
             });
+            marker.on("mouseover", () =>
+              map.getContainer().classList.add("show-stop-labels")
+            );
+            marker.on("mouseout", () =>
+              map.getContainer().classList.remove("show-stop-labels")
+            );
           },
         }).addTo(map);
         candidateStopsLayerRef.current = layer;
@@ -688,11 +729,10 @@ export default function MapView({
           pointToLayer: (_feature, latlng) =>
             L.circleMarker(latlng, {
               radius: 7,
-              color: "#ffffff",
               weight: 2,
               opacity: 1,
-              fillColor: LANDMARK_COLOR,
               fillOpacity: 1,
+              ...markerPaint(LANDMARK_COLOR, isDarkTheme()),
             }),
           onEachFeature: (feature, layer) => {
             const p = (feature as unknown as LandmarkFeature).properties;
@@ -705,6 +745,19 @@ export default function MapView({
           },
         }).addTo(map);
         landmarksLayerRef.current = layer;
+
+        applyLandmarkFilterRef.current = () => {
+          layer.eachLayer((marker) => {
+            const feature = (marker as L.Path & { feature: LandmarkFeature }).feature;
+            const show = !hiddenLandmarksRef.current[feature.properties.name];
+            const el = (marker as L.Path).getElement();
+            if (el) (el as HTMLElement).style.display = show ? "" : "none";
+            // 점을 숨겨도 Leaflet 툴팁은 따로 떠 있으므로 이름표도 같이 여닫는다.
+            if (show) marker.openTooltip();
+            else marker.closeTooltip();
+          });
+        };
+        applyLandmarkFilterRef.current();
         restackRef.current();
       });
 
@@ -719,11 +772,10 @@ export default function MapView({
           pointToLayer: (_feature, latlng) =>
             L.circleMarker(latlng, {
               radius: 4,
-              color: "#ffffff",
               weight: 1.2,
               opacity: 0.9,
-              fillColor: BUS_STOP_COLOR,
               fillOpacity: 0.95,
+              ...markerPaint(BUS_STOP_COLOR, isDarkTheme()),
             }),
           onEachFeature: (feature, layer) => {
             const p = (feature as unknown as BusStopFeature).properties;
@@ -820,7 +872,6 @@ export default function MapView({
     return () => {
       cancelled = true;
       observer.disconnect();
-      map.off("zoomend", syncLabelZoom);
       map.remove();
       mapRef.current = null;
       busRouteLayersRef.current = [];
