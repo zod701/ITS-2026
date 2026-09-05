@@ -30,6 +30,32 @@ export const BUS_ROUTE_COLORS: Record<BusRoute, string> = {
   C: "#2563eb",
 };
 
+// 정류장은 재는 값이 없는 참조 자료라 색을 주지 않는다 - 이 지도에서 색은 전부 지표를
+// 뜻하므로(배경지도를 무채색으로 깐 이유와 같다), 정류장에 유채색을 주면 등급처럼 읽힌다.
+// 밝은 배경에서는 짙은 속살이, 어두운 배경에서는 흰 테두리가 각각 점을 드러낸다.
+export const BUS_STOP_COLOR = "#475569";
+
+// 강릉역·전수교육관 표식. 정류장과 같은 이유로 무채색이되, 그보다 짙게 두어 361개 점
+// 사이에서도 기준점으로 먼저 읽히게 한다. 버스 노선 케이싱과 같은 값이다.
+export const LANDMARK_COLOR = "#111827";
+
+// 위험도 최소 경로로 뽑은 셔틀 노선 후보 3 개
+// (TAAS/analysis/composite/route_candidates.py).
+export type RouteCandidate = 1 | 2 | 3;
+export const ROUTE_CANDIDATES: RouteCandidate[] = [1, 2, 3];
+
+// 세 후보는 같은 방법으로 뽑은 한 묶음이라 색을 나누지 않고 **선 모양**으로만 가른다 —
+// 색을 셋으로 쪼개면 노선 A/B/C 와 등급색까지 여섯 갈래가 되어 지도가 읽히지 않는다.
+// 등급색(초록·노랑·빨강)과는 색상환에서 멀어 겹치지 않는다. 다만 기존 노선 C(#2563eb)와
+// 같은 파랑 계열이라, 둘을 함께 켜면 케이싱 굵기와 파선 무늬로만 갈린다 — C 보다 한 단계
+// 짙은 값을 써서 나란히 놓였을 때의 구분을 조금이라도 벌려 둔다.
+export const ROUTE_CANDIDATE_COLOR = "#1d4ed8";
+export const ROUTE_CANDIDATE_DASH: Record<RouteCandidate, string | undefined> = {
+  1: undefined,
+  2: "13 8",
+  3: "2 7",
+};
+
 // 도로교통공단 TAAS 공개 CSV 의 사고 이력 오버레이. DSI 는 사고가 난 적 없는 구간도 사전
 // 진단하는 지표라 이 둘은 정답지가 아니라 대조군이다.
 export type AccidentLayer = "fatal" | "serious";

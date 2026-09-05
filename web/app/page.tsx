@@ -8,10 +8,12 @@ import MapLegend, {
   ACCIDENT_LAYERS,
   ACCIDENT_YEARS,
   BUS_ROUTES,
+  ROUTE_CANDIDATES,
   GRADES,
   NO_DATA_KEY,
   type AccidentLayer,
   type BusRoute,
+  type RouteCandidate,
   type GradeFilterKey,
 } from "./components/MapLegend";
 import BusRouteButton from "./components/BusRouteButton";
@@ -49,6 +51,13 @@ function HomeInner() {
   const [visibleRoutes, setVisibleRoutes] = useState<Record<BusRoute, boolean>>(
     Object.fromEntries(BUS_ROUTES.map((k) => [k, false])) as Record<BusRoute, boolean>
   );
+  // 정류장도 노선·사고와 같은 대조 자료라 기본 꺼짐 - 첫 화면은 DSI 지도 그대로 둔다.
+  const [showStops, setShowStops] = useState(false);
+  // 제안 노선은 이 저장소가 계산해 낸 결과물이라 기본 켜짐 - 지도를 열었을 때 먼저
+  // 보여야 할 산출물이고, 세 줄뿐이라 DSI 색을 가리지도 않는다.
+  const [visibleCandidates, setVisibleCandidates] = useState<Record<RouteCandidate, boolean>>(
+    Object.fromEntries(ROUTE_CANDIDATES.map((r) => [r, true])) as Record<RouteCandidate, boolean>
+  );
   // 사고 이력은 DSI 와 별개의 대조 자료이므로 버스 노선과 마찬가지로 기본 꺼짐 —
   // 처음 들어온 사람이 보는 것은 여전히 DSI 지도 그대로다.
   const [visibleAccident, setVisibleAccident] = useState<Record<AccidentLayer, boolean>>(
@@ -85,6 +94,12 @@ function HomeInner() {
   };
   const toggleRoute = (key: BusRoute) => {
     setVisibleRoutes((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+  const toggleStops = () => {
+    setShowStops((prev) => !prev);
+  };
+  const toggleCandidate = (rank: RouteCandidate) => {
+    setVisibleCandidates((prev) => ({ ...prev, [rank]: !prev[rank] }));
   };
   const toggleAccident = (key: AccidentLayer) => {
     setVisibleAccident((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -154,6 +169,8 @@ function HomeInner() {
         onSelect={selectPoint}
         visibleGrades={visibleGrades}
         visibleRoutes={visibleRoutes}
+        showStops={showStops}
+        visibleCandidates={visibleCandidates}
         visibleAccident={visibleAccident}
         accidentYears={accidentYears}
         version={dsiVersion}
@@ -189,6 +206,10 @@ function HomeInner() {
         <BusRouteButton
           visibleRoutes={visibleRoutes}
           onToggleRoute={toggleRoute}
+          showStops={showStops}
+          onToggleStops={toggleStops}
+          visibleCandidates={visibleCandidates}
+          onToggleCandidate={toggleCandidate}
           version={dsiVersion}
           alpha={alpha}
         />

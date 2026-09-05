@@ -14,11 +14,16 @@ import {
 import {
   ACCIDENT_COLORS,
   BUS_ROUTE_COLORS,
+  BUS_STOP_COLOR,
+  LANDMARK_COLOR,
+  ROUTE_CANDIDATE_COLOR,
+  ROUTE_CANDIDATE_DASH,
   GRADE_COLORS,
   NO_DATA_COLOR,
   NO_DATA_KEY,
   type AccidentLayer,
   type BusRoute,
+  type RouteCandidate,
   type Grade,
   type GradeFilterKey,
 } from "./MapLegend";
@@ -73,6 +78,42 @@ interface BusRoutesGeoJson {
   features: BusRouteFeature[];
 }
 
+// VWorld 지명검색(POI)으로 모은 지도 범위 안의 정류장 361개소
+// (TAAS/analysis/prep/bus_stops.py). 노선과 달리 A/B/C 소속이 없는 단일 오버레이다.
+interface BusStopFeature {
+  type: "Feature";
+  geometry: { type: "Point"; coordinates: [number, number] };
+  properties: { name: string; addr: string };
+}
+
+// 단오제 판의 수요가 흐르는 두 끝점 — 강릉역(외부 유입)과 전수교육관(행사 거점).
+// 노선 후보를 볼 때 위치의 기준이 되므로 이름표를 항상 띄운다
+// (TAAS/analysis/prep/landmarks.py).
+interface LandmarkFeature {
+  type: "Feature";
+  geometry: { type: "Point"; coordinates: [number, number] };
+  properties: { name: string; title: string; addr: string };
+}
+
+// 두 거점을 잇는 위험도 최소 경로 3 개. 노선 A/B/C 와 같은 케이싱+실선 구조를 쓰되 색은
+// 하나로 두고 rank 별 파선 무늬로 가른다.
+interface RouteCandidateFeature {
+  type: "Feature";
+  geometry: { type: "LineString"; coordinates: [number, number][] };
+  properties: { rank: RouteCandidate; length_km: number; mean_dsi: number };
+}
+
+// 켜진 후보가 지나는 정류장. 한 정류장이 여러 후보에 걸리므로(강릉역 등) 후보별로 점을
+// 복제하지 않고 ranks 에 어느 후보가 지나는지를 적어 둔다.
+interface CandidateStopFeature {
+  type: "Feature";
+  geometry: { type: "Point"; coordinates: [number, number] };
+  properties: { name: string; addr: string; ranks: RouteCandidate[] };
+}
+
+/** 경유 정류장 이름표를 띄우기 시작하는 줌. 이보다 넓게 보면 이름이 서로 겹친다. */
+const STOP_LABEL_ZOOM = 15;
+
 // TAAS 원시 사고지점 오버레이 (2024~25 중상 이상 216건). 좌표계는 WGS84.
 // 종전의 위험지역/다발지역 폴리곤은 사고 4건·9건 이상만 수록된 **선정 구역**이라
 // 절단 자료였다 (TAAS/method.md X-24). 원시 지점으로 대체했다.
@@ -97,6 +138,10 @@ interface Props {
   onSelect: (point: SelectedPoint) => void;
   visibleGrades: Record<GradeFilterKey, boolean>;
   visibleRoutes: Record<BusRoute, boolean>;
+  /** 버스 정류장 오버레이 표시 여부. 노선과 독립적으로 켠다. */
+  showStops: boolean;
+  /** 위험도 최소 경로 후보(rank 1~3) 중 켜 둘 것. */
+  visibleCandidates: Record<RouteCandidate, boolean>;
   visibleAccident: Record<AccidentLayer, boolean>;
   /** 레이어별로 켜 둔 연도. 레이어가 켜져 있어도 여기 없는 연도는 그리지 않는다. */
   accidentYears: Record<AccidentLayer, Record<string, boolean>>;
@@ -163,6 +208,8 @@ export default function MapView({
   onSelect,
   visibleGrades,
   visibleRoutes,
+  showStops,
+  visibleCandidates,
   visibleAccident,
   accidentYears,
   version,
@@ -196,6 +243,30 @@ export default function MapView({
   // 항상 여기 저장해두고, 도로 레이어가 (나중에) 추가된 직후 다시 앞으로 가져와 항상
   // 버스 노선이 DSI 선 위에 보이도록 강제한다.
   const busRouteLayersRef = useRef<L.GeoJSON[]>([]);
+  // 정류장은 노선과 같은 층위(노선 위, 사고 아래)에 둔다. 361개 점이 한꺼번에 붙었다
+  // 떨어지면 그때마다 SVG 를 다시 그리므로, 레이어는 한 번만 만들고 지도에서 넣고 뺀다.
+  const busStopsLayerRef = useRef<L.GeoJSON | null>(null);
+  const landmarksLayerRef = useRef<L.GeoJSON | null>(null);
+  const showStopsRef = useRef(showStops);
+  const applyStopsRef = useRef<() => void>(() => {});
+  const candidateLayersRef = useRef<L.GeoJSON[]>([]);
+  // 켜진 후보가 지나는 정류장. 361개 전체 정류장 레이어와 별개로, 후보 토글을 따라 켜진다.
+  const candidateStopsLayerRef = useRef<L.GeoJSON | null>(null);
+  const visibleCandidatesRef = useRef(visibleCandidates);
+  const applyCandidateFilterRef = useRef<() => void>(() => {});
+  const applyCandidateStopFilterRef = useRef<() => void>(() => {});
+  // 레이어가 다섯 갈래로 각자 비동기 도착하므로, 어느 것이 늦게 붙든 순서를 여기서 한 번에
+  // 다시 세운다. 아래에서 위로: 도로 → 노선 A/B/C → 후보 노선 → 정류장 → 경유 정류장 →
+  // 랜드마크 → 사고. 정류장을 노선보다 위에 두어 노선 선이 정류장 점을 덮지 않게 한다.
+  const restackRef = useRef<() => void>(() => {});
+  restackRef.current = () => {
+    busRouteLayersRef.current.forEach((layer) => layer.bringToFront());
+    candidateLayersRef.current.forEach((layer) => layer.bringToFront());
+    busStopsLayerRef.current?.bringToFront();
+    candidateStopsLayerRef.current?.bringToFront();
+    landmarksLayerRef.current?.bringToFront();
+    raiseAccidentRef.current();
+  };
   // 사고 이력 오버레이는 DSI 도로·버스 노선보다 위에 그린다 - 아래에 두면 촘촘한 도로선이
   // 면을 잘게 끊어 놔 어디까지가 한 구역인지 읽히지 않는다. 대신 면 안쪽은 globals.css 의
   // pointer-events:stroke 로 클릭을 통과시켜, 그 아래 도로의 패널 열기를 가리지 않는다.
@@ -307,6 +378,17 @@ export default function MapView({
   }, [visibleRoutes]);
 
   useEffect(() => {
+    showStopsRef.current = showStops;
+    applyStopsRef.current();
+  }, [showStops]);
+
+  useEffect(() => {
+    visibleCandidatesRef.current = visibleCandidates;
+    applyCandidateFilterRef.current();
+    applyCandidateStopFilterRef.current();
+  }, [visibleCandidates]);
+
+  useEffect(() => {
     visibleAccidentRef.current = visibleAccident;
     applyAccidentFilterRef.current();
   }, [visibleAccident]);
@@ -396,6 +478,12 @@ export default function MapView({
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
+    const syncLabelZoom = () => {
+      map.getContainer().classList.toggle("hide-stop-labels", map.getZoom() < STOP_LABEL_ZOOM);
+    };
+    map.on("zoomend", syncLabelZoom);
+    syncLabelZoom();
+
     let points: PointFeature[] = [];
 
     fetch("/data/points.geojson")
@@ -443,11 +531,8 @@ export default function MapView({
         });
         roadsLayer.addTo(map);
         roadsLayerRef.current = roadsLayer;
-        // 도로가 버스 노선보다 나중에 추가돼 위로 올라갈 수 있으니, 이미 그려진 버스
-        // 노선이 있으면 다시 맨 앞으로 가져온다.
-        busRouteLayersRef.current.forEach((layer) => layer.bringToFront());
-        // 사고 이력은 그보다도 위.
-        raiseAccidentRef.current();
+        // 도로가 다른 레이어보다 나중에 추가돼 위로 올라갈 수 있으니 순서를 다시 세운다.
+        restackRef.current();
 
         // grade 체크박스(범례)로 토글될 때 해당 등급 도로만 지도에 남기고 나머지는 제거.
         applyFilterRef.current = () => {
@@ -489,9 +574,7 @@ export default function MapView({
           interactive: false,
         }).addTo(map);
         busRouteLayersRef.current = [casingLayer, busRoutesLayer];
-        casingLayer.bringToFront();
-        busRoutesLayer.bringToFront();
-        raiseAccidentRef.current();
+        restackRef.current();
 
         // 노선 체크박스(범례)로 토글될 때 해당 노선(케이싱+컬러 라인 둘 다)만 지도에 남기고 나머지는 제거.
         applyRouteFilterRef.current = () => {
@@ -505,6 +588,165 @@ export default function MapView({
           });
         };
         applyRouteFilterRef.current();
+      });
+
+    // 위험도 최소 경로 후보. 노선 A/B/C 와 같은 케이싱+실선 2 겹 구조를 쓴다 -
+    // interactive: false 로 아래 도로의 클릭(패널 열기)을 가리지 않는다. 후보별 수치는
+    // 툴팁 대신 「버스 노선」 패널에 적는다 - A/B/C 의 평균 DSI 와 같은 자리라야 견준다.
+    fetch("/data/route_candidates.geojson")
+      .then((res) => res.json())
+      .catch(() => null)
+      .then((loaded) => {
+        if (cancelled || !loaded) return;
+        const casing = L.geoJSON(loaded as GeoJSON.GeoJsonObject, {
+          style: () => ({ color: "#111827", weight: 9, opacity: 0.55 }),
+          interactive: false,
+        }).addTo(map);
+        const core = L.geoJSON(loaded as GeoJSON.GeoJsonObject, {
+          style: (feature) => ({
+            color: ROUTE_CANDIDATE_COLOR,
+            weight: 5,
+            opacity: 1,
+            dashArray:
+              ROUTE_CANDIDATE_DASH[
+                (feature as unknown as RouteCandidateFeature).properties.rank
+              ],
+          }),
+          interactive: false,
+        }).addTo(map);
+        candidateLayersRef.current = [casing, core];
+
+        applyCandidateFilterRef.current = () => {
+          [casing, core].forEach((group) => {
+            group.eachLayer((layer) => {
+              const feature = (layer as L.Path & { feature: RouteCandidateFeature }).feature;
+              const show = visibleCandidatesRef.current[feature.properties.rank];
+              const el = (layer as L.Path).getElement();
+              if (el) (el as HTMLElement).style.display = show ? "" : "none";
+            });
+          });
+        };
+        applyCandidateFilterRef.current();
+        restackRef.current();
+      });
+
+    // 켜진 후보가 지나는 정류장. 후보 선과 같은 색으로 칠해 어느 선의 정류장인지 바로
+    // 읽히게 하고, 이름표는 줌이 STOP_LABEL_ZOOM 이상일 때만 띄운다 - 도시 전체가 보이는
+    // 기본 줌에서 25개 이름이 한꺼번에 뜨면 서로 겹쳐 아무것도 못 읽는다.
+    fetch("/data/route_candidate_stops.geojson")
+      .then((res) => res.json())
+      .catch(() => null)
+      .then((loaded) => {
+        if (cancelled || !loaded) return;
+        const layer = L.geoJSON(loaded as GeoJSON.GeoJsonObject, {
+          pointToLayer: (_feature, latlng) =>
+            L.circleMarker(latlng, {
+              radius: 6,
+              color: "#ffffff",
+              weight: 1.8,
+              opacity: 1,
+              fillColor: ROUTE_CANDIDATE_COLOR,
+              fillOpacity: 1,
+            }),
+          onEachFeature: (feature, layer) => {
+            const p = (feature as unknown as CandidateStopFeature).properties;
+            layer.bindTooltip(p.name, {
+              permanent: true,
+              direction: "right",
+              offset: [8, 0],
+              className: "candidate-stop-label",
+            });
+          },
+        }).addTo(map);
+        candidateStopsLayerRef.current = layer;
+
+        applyCandidateStopFilterRef.current = () => {
+          layer.eachLayer((marker) => {
+            const feature = (marker as L.Path & { feature: CandidateStopFeature }).feature;
+            const show = feature.properties.ranks.some(
+              (r) => visibleCandidatesRef.current[r]
+            );
+            const el = (marker as L.Path).getElement();
+            if (el) (el as HTMLElement).style.display = show ? "" : "none";
+            // 점을 숨겨도 Leaflet 툴팁은 따로 떠 있으므로 같이 여닫는다.
+            if (show) marker.openTooltip();
+            else marker.closeTooltip();
+          });
+        };
+        applyCandidateStopFilterRef.current();
+        restackRef.current();
+      });
+
+    // 두 점뿐이고 DSI 색과 겹치지 않는 무채색 표식이라 상시 표시한다 - 첫 화면에서
+    // 지도가 어디를 보고 있는지 알려주는 기준점 역할이지 대조 자료가 아니다.
+    fetch("/data/landmarks.geojson")
+      .then((res) => res.json())
+      .catch(() => null)
+      .then((loaded) => {
+        if (cancelled || !loaded) return;
+        const layer = L.geoJSON(loaded as GeoJSON.GeoJsonObject, {
+          pointToLayer: (_feature, latlng) =>
+            L.circleMarker(latlng, {
+              radius: 7,
+              color: "#ffffff",
+              weight: 2,
+              opacity: 1,
+              fillColor: LANDMARK_COLOR,
+              fillOpacity: 1,
+            }),
+          onEachFeature: (feature, layer) => {
+            const p = (feature as unknown as LandmarkFeature).properties;
+            layer.bindTooltip(p.name, {
+              permanent: true,
+              direction: "top",
+              offset: [0, -8],
+              className: "landmark-label",
+            });
+          },
+        }).addTo(map);
+        landmarksLayerRef.current = layer;
+        restackRef.current();
+      });
+
+    fetch("/data/bus_stops.geojson")
+      .then((res) => res.json())
+      .catch(() => null)
+      .then((loaded) => {
+        if (cancelled || !loaded) return;
+        // 반지름 4px. 361개소가 도심에 몰려 있어 이보다 크면 서로 붙어 도로를 덮는다.
+        // 사고지점(색 속살 + 흰 테두리)과 안팎이 뒤집힌 배색이라 겹쳐 봐도 갈린다.
+        const stopsLayer = L.geoJSON(loaded as GeoJSON.GeoJsonObject, {
+          pointToLayer: (_feature, latlng) =>
+            L.circleMarker(latlng, {
+              radius: 4,
+              color: "#ffffff",
+              weight: 1.2,
+              opacity: 0.9,
+              fillColor: BUS_STOP_COLOR,
+              fillOpacity: 0.95,
+            }),
+          onEachFeature: (feature, layer) => {
+            const p = (feature as unknown as BusStopFeature).properties;
+            layer.bindTooltip(
+              `<b>${p.name}</b>` +
+                (p.addr ? `<br/><span style="opacity:.7">${p.addr}</span>` : ""),
+              { sticky: true }
+            );
+          },
+        });
+        busStopsLayerRef.current = stopsLayer;
+
+        applyStopsRef.current = () => {
+          const layer = busStopsLayerRef.current;
+          if (!layer) return;
+          if (showStopsRef.current) {
+            layer.addTo(map);
+            restackRef.current();
+          } else {
+            layer.remove();
+          }
+        };
+        applyStopsRef.current();
       });
 
     // TAAS 원시 사고지점. 사망/중상 두 겹으로 나눠 얹는다 - 216건뿐이라 개별 점으로
@@ -556,7 +798,7 @@ export default function MapView({
           accidentLayersRef.current.serious?.bringToFront();
           accidentLayersRef.current.fatal?.bringToFront();
         };
-        raiseAccidentRef.current();
+        restackRef.current();
 
         applyAccidentFilterRef.current = () => {
           (Object.keys(accidentLayersRef.current) as AccidentLayer[]).forEach((key) => {
@@ -578,9 +820,14 @@ export default function MapView({
     return () => {
       cancelled = true;
       observer.disconnect();
+      map.off("zoomend", syncLabelZoom);
       map.remove();
       mapRef.current = null;
       busRouteLayersRef.current = [];
+      busStopsLayerRef.current = null;
+      candidateLayersRef.current = [];
+      candidateStopsLayerRef.current = null;
+      landmarksLayerRef.current = null;
       accidentLayersRef.current = {};
     };
     // 이 effect 는 지도를 만들고 정리(map.remove())까지 하므로 반드시 마운트 1회만 돌아야

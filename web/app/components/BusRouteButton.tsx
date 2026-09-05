@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { combineAlpha } from "../versions";
-import { BUS_ROUTES, BUS_ROUTE_COLORS, type BusRoute } from "./MapLegend";
+import {
+  BUS_ROUTES,
+  BUS_ROUTE_COLORS,
+  BUS_STOP_COLOR,
+  ROUTE_CANDIDATES,
+  ROUTE_CANDIDATE_COLOR,
+  ROUTE_CANDIDATE_DASH,
+  type BusRoute,
+  type RouteCandidate,
+} from "./MapLegend";
 
 // 버스 노선은 파이프라인 버전과 무관한 고정 오버레이라, 버전마다 늘었다 줄었다 하는 범례와
 // 함께 두면 상단 패널이 두 줄로 접힌다. 별도 버튼으로 빼서 필요할 때만 펼친다.
@@ -12,6 +21,15 @@ const BUS_ROUTE_LABELS: Record<BusRoute, string> = {
   B: "B 노선",
   C: "C 노선",
 };
+
+// route_candidates.geojson 의 properties. 지도에는 선만 그리고 수치는 여기 적는다.
+interface CandidateRecord {
+  rank: RouteCandidate;
+  length_km: number;
+  mean_dsi: number;
+  n_stops: number;
+  share_highrisk: number;
+}
 
 interface BusRouteDsiRecord {
   dsi: number;
@@ -26,6 +44,12 @@ type BusRouteDsiMap = Partial<Record<BusRoute | "overall", BusRouteDsiRecord>>;
 interface Props {
   visibleRoutes: Record<BusRoute, boolean>;
   onToggleRoute: (key: BusRoute) => void;
+  /** 정류장 오버레이. 특정 노선에 속하지 않으므로 노선 목록과 나눠 둔다. */
+  showStops: boolean;
+  onToggleStops: () => void;
+  /** 위험도 최소 경로 후보 3 개. */
+  visibleCandidates: Record<RouteCandidate, boolean>;
+  onToggleCandidate: (rank: RouteCandidate) => void;
   /** 노선 평균 DSI 를 읽어올 03 실행 버전. */
   version: string;
   /** 정적:동적 비중. 성분이 실린 판에서는 이 값으로 평균을 다시 합성한다. */
@@ -35,11 +59,16 @@ interface Props {
 export default function BusRouteButton({
   visibleRoutes,
   onToggleRoute,
+  showStops,
+  onToggleStops,
+  visibleCandidates,
+  onToggleCandidate,
   version,
   alpha,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [routeDsi, setRouteDsi] = useState<BusRouteDsiMap>({});
+  const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
   const hostRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -56,6 +85,19 @@ export default function BusRouteButton({
       cancelled = true;
     };
   }, [version]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/data/route_candidates.geojson")
+      .then((res) => res.json())
+      .then((fc: { features: { properties: CandidateRecord }[] }) => {
+        if (!cancelled) setCandidates(fc.features.map((f) => f.properties));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 지도를 보려고 누른 것이므로 바깥을 클릭하거나 Esc 를 누르면 닫는다.
   useEffect(() => {
@@ -76,7 +118,10 @@ export default function BusRouteButton({
 
   const routeValue = (r: BusRouteDsiRecord) =>
     r.s !== undefined && r.d !== undefined ? combineAlpha(r.s, r.d, alpha) : r.dsi;
-  const anyOn = BUS_ROUTES.some((r) => visibleRoutes[r]);
+  const anyOn =
+    BUS_ROUTES.some((r) => visibleRoutes[r]) ||
+    showStops ||
+    ROUTE_CANDIDATES.some((r) => visibleCandidates[r]);
 
   return (
     <div className="bus-host" ref={hostRef}>
@@ -95,7 +140,7 @@ export default function BusRouteButton({
 
       {open && (
         <div className="bus-panel" role="dialog" aria-label="버스 노선">
-          <div className="bus-panel-head">버스 노선</div>
+          <div className="bus-panel-head">기존 자율주행 버스 노선</div>
           <div className="bus-list">
             {BUS_ROUTES.map((route) => {
               const rec = routeDsi[route];
@@ -118,6 +163,66 @@ export default function BusRouteButton({
               );
             })}
           </div>
+          {/* 정류장은 A/B/C 어디에도 속하지 않는 별도 자료라 선을 그어 나눈다. */}
+          <div className="bus-sep" />
+          <div className="bus-list">
+            <button
+              className={`bus-item ${showStops ? "" : "bus-item-off"}`}
+              onClick={onToggleStops}
+              aria-pressed={showStops}
+              title="VWorld 지명검색으로 모은 지도 범위 안의 버스정류장. 경유노선·상하행 정보는 없다."
+            >
+              <span className="bus-dot" style={{ background: BUS_STOP_COLOR }} />
+              <span className="bus-label">버스 정류장</span>
+              <span className="bus-dsi">361개소</span>
+            </button>
+          </div>
+
+          {/* 전수교육관↔강릉역 위험도 최소 경로. A/B/C 와 달리 이 저장소가 계산해 낸
+              결과물이라 따로 묶고, 어떤 판·α 로 뽑았는지 부제로 밝힌다. */}
+          {candidates.length > 0 && (
+            <>
+              <div className="bus-sep" />
+              <div className="bus-panel-head">
+                제안 노선 <span className="bus-sub">전수교육관 ↔ 강릉역 · 2026 단오제 · α 0.35</span>
+              </div>
+              <div className="bus-list">
+                {candidates.map((c) => (
+                  <button
+                    key={c.rank}
+                    className={`bus-item ${visibleCandidates[c.rank] ? "" : "bus-item-off"}`}
+                    onClick={() => onToggleCandidate(c.rank)}
+                    aria-pressed={visibleCandidates[c.rank]}
+                    title={
+                      `${c.length_km}km · 평균 DSI ${c.mean_dsi.toFixed(3)} · ` +
+                      `High-risk 구간 ${Math.round(c.share_highrisk * 100)}% · ` +
+                      `정류장 ${c.n_stops}개소`
+                    }
+                  >
+                    <span
+                      className="bus-swatch bus-swatch-dash"
+                      style={{
+                        backgroundImage: ROUTE_CANDIDATE_DASH[c.rank]
+                          ? `repeating-linear-gradient(90deg, ${ROUTE_CANDIDATE_COLOR} 0 ${
+                              c.rank === 2 ? "6px" : "2px"
+                            }, transparent ${c.rank === 2 ? "6px" : "2px"} ${
+                              c.rank === 2 ? "10px" : "5px"
+                            })`
+                          : undefined,
+                        background: ROUTE_CANDIDATE_DASH[c.rank]
+                          ? undefined
+                          : ROUTE_CANDIDATE_COLOR,
+                      }}
+                    />
+                    <span className="bus-label">
+                      {c.rank}순위 <span className="bus-sub">{c.length_km}km</span>
+                    </span>
+                    <span className="bus-dsi">평균 DSI {c.mean_dsi.toFixed(2)}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -208,6 +313,32 @@ export default function BusRouteButton({
           border-radius: 2px;
           flex-shrink: 0;
           box-shadow: 0 0 0 1.5px #111827;
+        }
+        /* 지도의 정류장 표식과 같은 모양 - 선(노선)과 점(정류장)을 범례에서도 구분한다. */
+        .bus-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+          flex-shrink: 0;
+          margin: 0 6.5px;
+          box-shadow: 0 0 0 1.2px #ffffff;
+        }
+        /* 파선 스와치는 배경이 그림이라 노선색 그림자를 두르지 않는다. */
+        .bus-swatch-dash {
+          box-shadow: none;
+          height: 4px;
+        }
+        .bus-sub {
+          font-weight: 400;
+          text-transform: none;
+          letter-spacing: 0;
+          color: var(--text-muted);
+          font-size: 10px;
+        }
+        .bus-sep {
+          height: 1px;
+          background: var(--border-color);
+          margin: 8px 0 6px;
         }
         .bus-label {
           flex: 1;
