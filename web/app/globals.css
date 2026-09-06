@@ -154,3 +154,11 @@ main {
 .show-stop-labels .leaflet-tooltip.candidate-stop-label {
   display: block;
 }
+
+/* 사고(삼각형)·거점(네모) 표식은 SVG divIcon 이다. Leaflet 의 .leaflet-div-icon 기본값이
+   흰 배경 + 회색 테두리라, 그대로 두면 도형 뒤에 네모난 상자가 같이 보인다. */
+.leaflet-div-icon.accident-marker,
+.leaflet-div-icon.landmark-marker {
+  background: none;
+  border: none;
+}

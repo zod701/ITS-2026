@@ -183,6 +183,54 @@ function candidateStopPaint() {
   return { fillColor: ROUTE_CANDIDATE_COLOR, color: "#ffffff" };
 }
 
+/** 두 사각형이 겹치는 넓이. 0 이면 안 겹친다. */
+function overlapArea(a: DOMRect, b: DOMRect): number {
+  const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+/**
+ * 사고 표식. 나머지 점 표식(DSI 지점·정류장·거점)이 전부 원이라, 사고만 **형태**로 갈라
+ * 두면 색이 비슷해 보이는 상황에서도 무엇인지 바로 읽힌다. 삼각형은 원으로 그릴 수 없어
+ * SVG divIcon 을 쓴다 - 그래서 이 표식만 마커 계열이고 나머지는 SVG 패스다.
+ * 두 겹의 크기는 같게 두고 색과 진하기로만 구분한다 - 중상 196건도 사망 20건과 똑같이
+ * 눈에 들어와야 분포를 읽을 수 있다.
+ */
+function accidentIcon(key: AccidentLayer): L.DivIcon {
+  return L.divIcon({
+    className: "accident-marker",
+    html:
+      '<svg width="15" height="14" viewBox="0 0 15 14" aria-hidden="true">' +
+      '<path d="M7.5 1 L14 12.6 L1 12.6 Z" ' +
+      `fill="${ACCIDENT_COLORS[key]}" fill-opacity="${key === "fatal" ? 0.95 : 0.7}" ` +
+      'stroke="#ffffff" stroke-width="1.2" stroke-opacity="0.9" stroke-linejoin="round"/>' +
+      "</svg>",
+    iconSize: [15, 14],
+    // 삼각형 무게중심 (1+12.6+12.6)/3 = 8.7 을 사고 지점에 맞춘다. 외접 사각형 중심에
+    // 맞추면 도형이 실제 자리보다 위로 떠 보인다.
+    iconAnchor: [7.5, 8.7],
+  });
+}
+
+/**
+ * 거점(강릉역·전수교육관) 표식. 사고를 삼각형으로 가른 것과 같은 이유로 네모를 쓴다 -
+ * 원(지점·정류장) · 삼각형(사고) · 네모(거점)로 층마다 형태가 달라, 색이 비슷해 보이는
+ * 상황에서도 무엇인지 읽힌다. 속살·테두리 색은 markerPaint 를 따라 다크모드에서 뒤집힌다.
+ */
+function landmarkIcon(dark: boolean): L.DivIcon {
+  const { fillColor, color } = markerPaint(LANDMARK_COLOR, dark);
+  return L.divIcon({
+    className: "landmark-marker",
+    html:
+      '<svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true">' +
+      `<rect x="1.5" y="1.5" width="12" height="12" rx="1.5" fill="${fillColor}" ` +
+      `stroke="${color}" stroke-width="2"/></svg>`,
+    iconSize: [15, 15],
+    iconAnchor: [7.5, 7.5],
+  });
+}
+
 // 배경지도는 두 테마 모두 CARTO 무채색 타일을 쓴다. 기본 OSM 타일은 산이 초록, 물이 파랑,
 // 건물이 분홍이라 그 위에 얹는 DSI 등급색(초록·노랑·빨강)과 버스 노선색이 배경과 섞여 읽히지
 // 않았다. 배경에서 색을 빼면 화면의 색은 전부 지표를 뜻하게 된다.
@@ -274,6 +322,9 @@ export default function MapView({
   const candidateLayersRef = useRef<L.GeoJSON[]>([]);
   // 켜진 후보가 지나는 정류장. 361개 전체 정류장 레이어와 별개로, 후보 토글을 따라 켜진다.
   const candidateStopsLayerRef = useRef<L.GeoJSON | null>(null);
+  // 경유 정류장 이름표를 마우스가 떠난 뒤에도 남겨 둘지. 정류장을 클릭할 때마다 뒤집힌다.
+  const stopLabelsPinnedRef = useRef(false);
+  const layoutStopLabelsRef = useRef<() => void>(() => {});
   const visibleCandidatesRef = useRef(visibleCandidates);
   const applyCandidateFilterRef = useRef<() => void>(() => {});
   const applyCandidateStopFilterRef = useRef<() => void>(() => {});
@@ -288,7 +339,12 @@ export default function MapView({
     const dark = isDarkTheme();
     busStopsLayerRef.current?.setStyle(markerPaint(BUS_STOP_COLOR, dark));
     candidateStopsLayerRef.current?.setStyle(candidateStopPaint());
-    landmarksLayerRef.current?.setStyle(markerPaint(LANDMARK_COLOR, dark));
+    // 거점은 divIcon 이라 setStyle 이 먹지 않는다. 아이콘을 새로 만들어 갈아 끼우고,
+    // 그 과정에서 지워지는 display:none 을 필터로 다시 입힌다.
+    landmarksLayerRef.current?.eachLayer((m) =>
+      (m as L.Marker).setIcon(landmarkIcon(dark))
+    );
+    applyLandmarkFilterRef.current();
   };
   const restackRef = useRef<() => void>(() => {});
   restackRef.current = () => {
@@ -296,16 +352,13 @@ export default function MapView({
     candidateLayersRef.current.forEach((layer) => layer.bringToFront());
     busStopsLayerRef.current?.bringToFront();
     candidateStopsLayerRef.current?.bringToFront();
-    landmarksLayerRef.current?.bringToFront();
-    raiseAccidentRef.current();
+    // 거점(markerPane 600)과 사고(전용 pane 610·620)는 SVG 패스가 아니라 마커라
+    // bringToFront 가 먹지 않는다. 그 둘의 순서는 pane 의 z-index 가 정한다.
   };
   // 사고 이력 오버레이는 DSI 도로·버스 노선보다 위에 그린다 - 아래에 두면 촘촘한 도로선이
-  // 면을 잘게 끊어 놔 어디까지가 한 구역인지 읽히지 않는다. 대신 면 안쪽은 globals.css 의
-  // pointer-events:stroke 로 클릭을 통과시켜, 그 아래 도로의 패널 열기를 가리지 않는다.
-  // 세 레이어(도로·버스노선·사고이력)가 각자 비동기로 도착하므로, 어느 것이 추가되든
-  // 끝에 raiseAccidentRef 를 불러 순서를 다시 세운다.
+  // 면을 잘게 끊어 놔 어디까지가 한 구역인지 읽히지 않는다. 전용 pane 을 쓰므로 도착
+  // 순서와 무관하게 늘 그 자리다.
   const accidentLayersRef = useRef<Partial<Record<AccidentLayer, L.GeoJSON>>>({});
-  const raiseAccidentRef = useRef<() => void>(() => {});
   const visibleAccidentRef = useRef(visibleAccident);
   const accidentYearsRef = useRef(accidentYears);
   const applyAccidentFilterRef = useRef<() => void>(() => {});
@@ -497,6 +550,11 @@ export default function MapView({
     // 기본 OSM 타일은 항상 밝은 배경이라 다크모드에서도 그대로면 눈부심.
     // data-theme(토글 수동 선택)을 시스템 설정보다 우선하고, 토글이 바뀌면
     // MutationObserver로 감지해 타일 레이어를 즉시 교체한다.
+    // 사고 표식은 divIcon 마커라 bringToFront 로 순서를 세울 수 없다. 전용 pane 을 만들어
+    // z-index 로 못 박는다 - markerPane(600) 위, tooltipPane(650) 아래.
+    map.createPane("accident-serious").style.zIndex = "610";
+    map.createPane("accident-fatal").style.zIndex = "620";
+
     let currentDark = isDarkTheme();
     let tileLayer = L.tileLayer(currentDark ? DARK_TILE_URL : LIGHT_TILE_URL, {
       attribution: TILE_ATTRIBUTION,
@@ -691,30 +749,93 @@ export default function MapView({
               offset: [8, 0],
               className: "candidate-stop-label",
             });
-            marker.on("mouseover", () =>
-              map.getContainer().classList.add("show-stop-labels")
-            );
-            marker.on("mouseout", () =>
-              map.getContainer().classList.remove("show-stop-labels")
-            );
+            const showLabels = (on: boolean) => {
+              map.getContainer().classList.toggle("show-stop-labels", on);
+              if (on) layoutStopLabelsRef.current();
+            };
+            marker.on("mouseover", () => showLabels(true));
+            // 고정해 둔 동안에는 마우스가 떠나도 이름을 남긴다 - 경유지를 적어 두거나
+            // 다른 후보와 견주려면 마우스를 치운 뒤에도 보여야 한다.
+            marker.on("mouseout", () => {
+              if (!stopLabelsPinnedRef.current) showLabels(false);
+            });
+            // 한 번 누르면 고정, 다시 누르면 풀린다. 푸는 순간에도 마우스는 아직 점 위에
+            // 있으므로 이름은 켠 채로 두고, 실제로 벗어날 때 위 mouseout 이 지운다.
+            marker.on("click", () => {
+              stopLabelsPinnedRef.current = !stopLabelsPinnedRef.current;
+              showLabels(true);
+            });
           },
         }).addTo(map);
         candidateStopsLayerRef.current = layer;
 
         applyCandidateStopFilterRef.current = () => {
+          let anyVisible = false;
           layer.eachLayer((marker) => {
             const feature = (marker as L.Path & { feature: CandidateStopFeature }).feature;
             const show = feature.properties.ranks.some(
               (r) => visibleCandidatesRef.current[r]
             );
+            anyVisible = anyVisible || show;
             const el = (marker as L.Path).getElement();
             if (el) (el as HTMLElement).style.display = show ? "" : "none";
             // 점을 숨겨도 Leaflet 툴팁은 따로 떠 있으므로 같이 여닫는다.
             if (show) marker.openTooltip();
             else marker.closeTooltip();
           });
+          // 보일 정류장이 하나도 없으면 고정을 풀어 둔다 - 그대로 두면 후보를 다시 켰을 때
+          // 만지지도 않은 이름표가 떠 있다.
+          if (!anyVisible) {
+            stopLabelsPinnedRef.current = false;
+            map.getContainer().classList.remove("show-stop-labels");
+          }
+          layoutStopLabelsRef.current();
         };
+        // 이름표가 서로 겹치지 않도록 점의 **좌·우** 중 빈 쪽에 붙인다. 기본은 오른쪽이고,
+        // 그 자리가 이미 찬 이름표와 겹치면 왼쪽으로 넘긴다. 양쪽 다 겹치면 덜 겹치는 쪽에
+        // 둔다 - 정류장이 한 축으로 촘촘히 늘어선 구간은 좌우만으로 다 풀리지 않는다.
+        // 움직이지 않는 랜드마크 이름표는 미리 자리를 차지한 것으로 놓고 시작한다.
+        layoutStopLabelsRef.current = () => {
+          if (!map.getContainer().classList.contains("show-stop-labels")) return;
+          const taken: DOMRect[] = [];
+          landmarksLayerRef.current?.eachLayer((m) => {
+            const el = m.getTooltip()?.getElement();
+            if (el?.isConnected && el.offsetWidth) taken.push(el.getBoundingClientRect());
+          });
+
+          const markers: L.CircleMarker[] = [];
+          layer.eachLayer((m) => markers.push(m as L.CircleMarker));
+          // 화면 위에서 아래 순으로 배치해야 결과가 매번 같다.
+          markers.sort(
+            (a, b) =>
+              map.latLngToContainerPoint(a.getLatLng()).y -
+              map.latLngToContainerPoint(b.getLatLng()).y
+          );
+
+          for (const m of markers) {
+            const dot = m.getElement() as HTMLElement | null;
+            const el = m.getTooltip()?.getElement();
+            if (!el?.isConnected || dot?.style.display === "none") continue;
+            // 자리를 예측하지 않고 **실제로 옮겨 보고 잰다**. Leaflet 이 방향 클래스마다
+            // margin-left 를 따로 걸어 두므로(오른쪽 6px), 인라인으로 덮으면 예측식이
+            // 그만큼 어긋난다.
+            el.style.marginLeft = "";
+            const right = el.getBoundingClientRect();
+            el.style.marginLeft = `${-(right.width + 16)}px`;
+            const left = el.getBoundingClientRect();
+
+            const cost = (r: DOMRect) =>
+              taken.reduce((sum, t) => sum + overlapArea(r, t), 0);
+            const useLeft = cost(left) < cost(right);
+            if (!useLeft) el.style.marginLeft = "";
+            taken.push(useLeft ? left : right);
+          }
+        };
+
         applyCandidateStopFilterRef.current();
+        layoutStopLabelsRef.current();
+        // 줌·이동으로 점 사이 화면 거리가 바뀌면 좌우 배치도 다시 잡아야 한다.
+        map.on("zoomend moveend", () => layoutStopLabelsRef.current());
         restackRef.current();
       });
 
@@ -727,13 +848,7 @@ export default function MapView({
         if (cancelled || !loaded) return;
         const layer = L.geoJSON(loaded as GeoJSON.GeoJsonObject, {
           pointToLayer: (_feature, latlng) =>
-            L.circleMarker(latlng, {
-              radius: 7,
-              weight: 2,
-              opacity: 1,
-              fillOpacity: 1,
-              ...markerPaint(LANDMARK_COLOR, isDarkTheme()),
-            }),
+            L.marker(latlng, { icon: landmarkIcon(isDarkTheme()) }),
           onEachFeature: (feature, layer) => {
             const p = (feature as unknown as LandmarkFeature).properties;
             layer.bindTooltip(p.name, {
@@ -747,11 +862,11 @@ export default function MapView({
         landmarksLayerRef.current = layer;
 
         applyLandmarkFilterRef.current = () => {
-          layer.eachLayer((marker) => {
-            const feature = (marker as L.Path & { feature: LandmarkFeature }).feature;
-            const show = !hiddenLandmarksRef.current[feature.properties.name];
-            const el = (marker as L.Path).getElement();
-            if (el) (el as HTMLElement).style.display = show ? "" : "none";
+          layer.eachLayer((layer_) => {
+            const marker = layer_ as L.Marker & { feature: LandmarkFeature };
+            const show = !hiddenLandmarksRef.current[marker.feature.properties.name];
+            const el = marker.getElement();
+            if (el) el.style.display = show ? "" : "none";
             // 점을 숨겨도 Leaflet 툴팁은 따로 떠 있으므로 이름표도 같이 여닫는다.
             if (show) marker.openTooltip();
             else marker.closeTooltip();
@@ -814,18 +929,9 @@ export default function MapView({
           L.geoJSON(fc as unknown as GeoJSON.GeoJsonObject, {
             filter: (feature) =>
               (feature as unknown as AccidentPointFeature).properties.sev === key,
-            // 폴리곤이 아니라 점이므로 pointToLayer 로 원을 직접 만든다. 두 겹의 크기는
-            // 같게 두고 색과 진하기로만 구분한다 - 중상 196건도 사망 20건과 똑같이
-            // 눈에 들어와야 분포를 읽을 수 있다.
+            // 폴리곤이 아니라 점이므로 pointToLayer 로 표식을 직접 만든다 (accidentIcon).
             pointToLayer: (_feature, latlng) =>
-              L.circleMarker(latlng, {
-                radius: 6.5,
-                color: "#ffffff",
-                weight: 1.2,
-                opacity: 0.9,
-                fillColor: ACCIDENT_COLORS[key],
-                fillOpacity: key === "fatal" ? 0.95 : 0.7,
-              }),
+              L.marker(latlng, { icon: accidentIcon(key), pane: `accident-${key}` }),
             onEachFeature: (feature, layer) => {
               const p = (feature as unknown as AccidentPointFeature).properties;
               const hurt = [
@@ -843,13 +949,8 @@ export default function MapView({
             },
           }).addTo(map);
 
+        // 쌓임 순서는 전용 pane 이 정한다 - 중상(610) 위에 사망(620).
         accidentLayersRef.current = { serious: makeLayer("serious"), fatal: makeLayer("fatal") };
-        // 앞으로 올리는 순서가 곧 쌓임 순서다 - 나중에 부른 쪽이 더 위로 온다.
-        // 결과: DSI 도로 → 버스 노선 → 중상 → 맨 위 사망.
-        raiseAccidentRef.current = () => {
-          accidentLayersRef.current.serious?.bringToFront();
-          accidentLayersRef.current.fatal?.bringToFront();
-        };
         restackRef.current();
 
         applyAccidentFilterRef.current = () => {
@@ -857,12 +958,12 @@ export default function MapView({
             const layerOn = visibleAccidentRef.current[key];
             const years = accidentYearsRef.current[key];
             accidentLayersRef.current[key]?.eachLayer((layer) => {
-              const feature = (layer as L.Path & {
+              const marker = layer as L.Marker & {
                 feature: { properties: { year: string } };
-              }).feature;
-              const show = layerOn && years[feature.properties.year] !== false;
-              const el = (layer as L.Path).getElement();
-              if (el) (el as HTMLElement).style.display = show ? "" : "none";
+              };
+              const show = layerOn && years[marker.feature.properties.year] !== false;
+              const el = marker.getElement();
+              if (el) el.style.display = show ? "" : "none";
             });
           });
         };

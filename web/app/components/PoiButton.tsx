@@ -95,7 +95,8 @@ export default function PoiButton({
                 aria-pressed={!hiddenLandmarks[l.name]}
                 title={l.addr}
               >
-                <span className="poi-dot" style={{ background: LANDMARK_COLOR }} />
+                {/* 지도의 거점 표식과 같은 네모. */}
+                <span className="poi-mark" style={{ background: LANDMARK_COLOR }} />
                 <span className="poi-label">{l.name}</span>
               </button>
             ))}
@@ -212,11 +213,10 @@ export default function PoiButton({
         .poi-item-off {
           opacity: 0.4;
         }
-        /* 지도의 거점 표식과 같은 모양 - 흰 테두리를 두른 짙은 점. */
-        .poi-dot {
+        .poi-mark {
           width: 11px;
           height: 11px;
-          border-radius: 50%;
+          border-radius: 2px;
           flex-shrink: 0;
           box-shadow: 0 0 0 1.5px #ffffff;
         }

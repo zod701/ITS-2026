@@ -76,8 +76,14 @@ export default function AccidentButton({
                   aria-pressed={visibleAccident[key]}
                   title={ACCIDENT_TITLES[key]}
                 >
-                  {/* 지도와 같은 규칙 - 둘 다 같은 크기의 채운 원, 색으로만 구분. */}
-                  <span className="acc-dot" style={{ background: ACCIDENT_COLORS[key] }} />
+                  {/* 지도와 같은 형태(삼각형)·같은 크기로 두고 색으로만 구분한다. */}
+                  <svg className="acc-mark" viewBox="0 0 15 14" aria-hidden="true">
+                    <path
+                      d="M7.5 1 L14 12.6 L1 12.6 Z"
+                      fill={ACCIDENT_COLORS[key]}
+                      fillOpacity={key === "fatal" ? 0.95 : 0.7}
+                    />
+                  </svg>
                   <span className="acc-label">{ACCIDENT_LABELS[key]}</span>
                 </button>
                 <div className="acc-years">
@@ -207,10 +213,9 @@ export default function AccidentButton({
         .acc-item-off {
           opacity: 0.4;
         }
-        .acc-dot {
-          width: 11px;
-          height: 11px;
-          border-radius: 50%;
+        .acc-mark {
+          width: 13px;
+          height: 12px;
           flex-shrink: 0;
         }
         .acc-label {
@@ -221,7 +226,7 @@ export default function AccidentButton({
           display: flex;
           align-items: center;
           gap: 4px;
-          padding-left: 21px;
+          padding-left: 23px;
         }
         .acc-chip {
           border: 1px solid var(--border-color);
