@@ -31,9 +31,9 @@ interface Props {
   title: string;
   icon: "github" | "doc";
   style?: React.CSSProperties;
-  /** Google Drive file ID for an associated document (e.g. a PDF), shown via a
-   * doc icon next to the modal title that opens an inline preview. */
-  driveFileId?: string;
+  /** 모달 제목 옆에 붙는 문서 버튼들. 누르면 그 문서를 모달 안에서 미리 본다.
+   * 제안서가 둘 이상이라 어느 문서인지 라벨로 갈라 준다(아이콘만으로는 구분되지 않는다). */
+  driveDocs?: { id: string; label: string }[];
 }
 
 export default function GithubMarkdownButton({
@@ -41,14 +41,15 @@ export default function GithubMarkdownButton({
   title,
   icon,
   style,
-  driveFileId,
+  driveDocs,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [contentError, setContentError] = useState(false);
   const [commit, setCommit] = useState<CommitInfo | null>(null);
   const [commitError, setCommitError] = useState(false);
-  const [showDrivePreview, setShowDrivePreview] = useState(false);
+  // 미리 보는 중인 문서의 Drive 파일 ID. null 이면 마크다운 본문을 보여준다.
+  const [openDocId, setOpenDocId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -113,36 +114,38 @@ export default function GithubMarkdownButton({
       {open && (
         <div className="md-modal-backdrop" onClick={() => setOpen(false)}>
           <div
-            className={`md-modal ${showDrivePreview && driveFileId ? "md-modal-preview" : ""}`}
+            className={`md-modal ${openDocId ? "md-modal-preview" : ""}`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="md-modal-header">
               <div className="md-modal-title">
                 <h2>{title}</h2>
-                {driveFileId && (
+                {driveDocs?.map((doc) => (
                   <button
+                    key={doc.id}
                     className="doc-icon-button"
-                    onClick={() => setShowDrivePreview((v) => !v)}
-                    aria-label="제안서 보기"
-                    title="제안서 보기"
-                    aria-pressed={showDrivePreview}
+                    onClick={() => setOpenDocId((v) => (v === doc.id ? null : doc.id))}
+                    aria-label={`${doc.label} 보기`}
+                    title={`${doc.label} 보기`}
+                    aria-pressed={openDocId === doc.id}
                   >
                     <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true">
                       <path d="M9.5 0H3a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V4.5L9.5 0Zm.25 1.5L12.75 5H10a.25.25 0 0 1-.25-.25V1.5ZM4 7h8v1H4V7Zm0 2.5h8v1H4v-1ZM4 12h5v1H4v-1Z" />
                     </svg>
+                    <span className="doc-icon-label">{doc.label}</span>
                   </button>
-                )}
+                ))}
               </div>
               <button onClick={() => setOpen(false)} aria-label="닫기">
                 ✕
               </button>
             </div>
 
-            {showDrivePreview && driveFileId ? (
+            {openDocId ? (
               <div className="drive-preview-body">
                 <iframe
-                  src={`https://drive.google.com/file/d/${driveFileId}/preview`}
-                  title={`${title} 제안서`}
+                  src={`https://drive.google.com/file/d/${openDocId}/preview`}
+                  title={driveDocs?.find((d) => d.id === openDocId)?.label ?? title}
                   allow="autoplay"
                 />
               </div>
@@ -262,9 +265,15 @@ export default function GithubMarkdownButton({
           display: flex;
           align-items: center;
           justify-content: center;
+          gap: 5px;
           padding: 4px !important;
           border-radius: 4px;
           color: var(--text-muted) !important;
+        }
+        .doc-icon-label {
+          font-size: 12px;
+          line-height: 1;
+          white-space: nowrap;
         }
         .doc-icon-button[aria-pressed="true"] {
           color: var(--link-color) !important;

@@ -254,7 +254,10 @@ function HomeInner() {
         title="Method"
         icon="doc"
         style={{ right: 24, bottom: 24 }}
-        driveFileId="1XXhLcUI0WI3sdbK1w-CqfxTMpvYRtESt"
+        driveDocs={[
+          { id: "1XXhLcUI0WI3sdbK1w-CqfxTMpvYRtESt", label: "유스 펠로우쉽" },
+          { id: "1TbMFgtUvTv1hUUzsIlG_hz54yq_lzTSx", label: "아이디어 공모전" },
+        ]}
       />
     </main>
   );

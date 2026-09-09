@@ -176,7 +176,7 @@ export default function MapLegend({
             value={version}
             onChange={(e) => onChangeVersion(e.target.value)}
             aria-label="파이프라인 버전"
-            title="지도 색상·DSI 값·BEV 이미지가 함께 바뀝니다. 버전 간 DSI 값은 정의가 달라 직접 비교할 수 없습니다."
+            title="지도 색상·도로 위험도 값·BEV 이미지가 함께 바뀝니다. 버전 간 도로 위험도 값은 정의가 달라 직접 비교할 수 없습니다."
           >
             {DSI_VERSIONS.map((v) => (
               <option key={v.id} value={v.id}>
@@ -209,7 +209,7 @@ export default function MapLegend({
               value={alpha}
               onChange={(e) => onAlphaChange(Number(e.target.value))}
               aria-label="정적 비중 알파"
-              title="DSI(정적)와 동적 지수(통행량·주정차)의 비중. 사고 자료로 정해지지 않는 설계값이다."
+              title="도로 음영 지수(정적)와 동적 지수(통행량·주정차)의 비중. 사고 자료로 정해지지 않는 설계값이다."
             />
           </div>
         )}
@@ -234,7 +234,10 @@ export default function MapLegend({
                 aria-pressed={visibleGrades[key]}
               >
                 <span
-                  className="legend-swatch"
+                  className={
+                    "legend-swatch" +
+                    (key === NO_DATA_KEY ? " legend-swatch-outline" : "")
+                  }
                   style={{ background: key === NO_DATA_KEY ? NO_DATA_COLOR : GRADE_COLORS[key] }}
                 />
                 {GRADE_LABELS[key]}
@@ -392,6 +395,12 @@ export default function MapLegend({
           height: 14px;
           border-radius: 3px;
           flex-shrink: 0;
+        }
+        /* '데이터 없음'은 지도에서 흰 선이라 견본도 흰색인데, 밝은 테마에서는 패널 배경도
+           흰색이라 그대로 두면 견본이 보이지 않는다. 테두리를 둘러 흰 면임을 드러낸다.
+           등급색 견본은 배경과 충분히 갈리므로 테두리를 두르지 않는다. */
+        .legend-swatch-outline {
+          box-shadow: inset 0 0 0 1px var(--text-muted);
         }
         .legend-swatch-line {
           width: 22px;
