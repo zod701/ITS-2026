@@ -1,0 +1,11 @@
+{
+  "route_count": 132,
+  "stop_visits": 5765,
+  "geometry_points": 69413,
+  "schedule_rows": 132,
+  "stop_time_rows": 38413,
+  "empty_stop_routes": [],
+  "empty_geometry_routes": [],
+  "source": "https://bis.gn.go.kr/search/route",
+  "listing_retrieved_at": "2026-09-25T06:21:29.086468+00:00"
+}

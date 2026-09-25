@@ -1,0 +1,46 @@
+{
+  "source_totals_ride_goff": [
+    7898451,
+    4001561
+  ],
+  "source_routes": 130,
+  "matched_current_routes": 116,
+  "unmatched_current_route_ids": [
+    "25517001",
+    "42002080",
+    "42002083",
+    "42002103",
+    "42092075",
+    "42092103",
+    "42101048",
+    "42101049",
+    "42101054",
+    "42805078",
+    "43104005",
+    "43107001",
+    "43107002",
+    "43107003"
+  ],
+  "current_routes_without_2025_records": [
+    "42001013",
+    "42002002",
+    "42002024",
+    "42002099",
+    "42002100",
+    "42002101",
+    "42002102",
+    "42002126",
+    "42002140",
+    "42002154",
+    "42002155",
+    "42002157",
+    "42091013",
+    "42092104",
+    "42092155",
+    "42092156"
+  ],
+  "route_stop_rows": 5090,
+  "top_rows": 1247,
+  "route_stop_pairs_not_on_current_route": 203,
+  "ranking": "positive counts, competition rank, unknown stop ID excluded; shares use full route totals"
+}

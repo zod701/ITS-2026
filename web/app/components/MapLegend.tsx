@@ -35,7 +35,7 @@ export const BUS_ROUTE_COLORS: Record<BusRoute, string> = {
 // 밝은 배경에서는 짙은 속살이, 어두운 배경에서는 흰 테두리가 각각 점을 드러낸다.
 export const BUS_STOP_COLOR = "#475569";
 
-// 강릉역·전수교육관 표식. 정류장과 같은 이유로 무채색이되, 그보다 짙게 두어 361개 점
+// 강릉역·전수교육관 표식. 정류장과 같은 이유로 무채색이되, 그보다 짙게 두어 정류장 점
 // 사이에서도 기준점으로 먼저 읽히게 한다. 버스 노선 케이싱과 같은 값이다.
 export const LANDMARK_COLOR = "#111827";
 

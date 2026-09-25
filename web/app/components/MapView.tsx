@@ -1,4 +1,37 @@
 "use client";
+import { routeDemandColors } from "../routeDemand";
+import type { BisRoute, StationTotals } from "../bisRoutes";
+
+function stationTooltip(p: StationTotals, route?: BisRoute, stop?: BisRoute["stops"][number]): HTMLElement {
+  const container = document.createElement("div");
+  const title = document.createElement("b");
+  title.textContent = p.name;
+  container.appendChild(title);
+  const count = (value: number | null, days: number) =>
+    value == null ? "기록 없음" : `${(value / days).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}명/일`;
+  const lines = [
+    `정류장 ID ${p.sttn_id}`,
+    "",
+    ...(route ? ["전체 노선 합계 · 일평균"] : []),
+    `2025년 일평균 승차 ${count(p.annual_2025_ride_nope, 365)} · 하차 ${count(p.annual_2025_goff_nope, 365)}`,
+    `단오제 일평균 승차 ${count(p.danoje_ride_nope, 8)} · 하차 ${count(p.danoje_goff_nope, 8)}`,
+  ];
+  if (route && stop) {
+    const annual = stop.demand.annual;
+    const danoje = stop.demand.danoje;
+    lines.push(
+      "",
+      `${route.name}번 · 일평균`,
+      `2025년 승차 ${count(annual?.[0] ?? null, 365)} · 하차 ${count(annual?.[1] ?? null, 365)}`,
+      `단오제 승차 ${count(danoje?.[0] ?? null, 8)} · 하차 ${count(danoje?.[1] ?? null, 8)}`,
+    );
+  }
+  for (const text of lines) {
+    container.appendChild(document.createElement("br"));
+    container.appendChild(document.createTextNode(text));
+  }
+  return container;
+}
 
 import { useCallback, useEffect, useRef } from "react";
 import L from "leaflet";
@@ -78,12 +111,22 @@ interface BusRoutesGeoJson {
   features: BusRouteFeature[];
 }
 
-// VWorld 지명검색(POI)으로 모은 지도 범위 안의 정류장 361개소
-// (TAAS/analysis/prep/bus_stops.py). 노선과 달리 A/B/C 소속이 없는 단일 오버레이다.
+// 강릉시 BIS ID·좌표와 스마트카드 승하차를 결합한 지도 범위 내 정류장.
+// TAAS/analysis/prep/build_bus_stop_demand.py에서 생성한다.
 interface BusStopFeature {
   type: "Feature";
   geometry: { type: "Point"; coordinates: [number, number] };
-  properties: { name: string; addr: string };
+  properties: {
+    name: string;
+    addr: string;
+    sttn_id: string;
+    annual_2025_ride_nope: number | null;
+    annual_2025_goff_nope: number | null;
+    danoje_ride_nope: number | null;
+    danoje_goff_nope: number | null;
+    danoje_days_with_record: number;
+    danoje_days_supplied: number;
+  };
 }
 
 // 단오제 판의 수요가 흐르는 두 끝점 — 강릉역(외부 유입)과 전수교육관(행사 거점).
@@ -132,6 +175,8 @@ interface AccidentPointFeature {
 }
 
 interface Props {
+  demandPeriod: import("../bisRoutes").DemandPeriod;
+  selectedBisRoute: import("../bisRoutes").BisRoute | null;
   onSelect: (point: SelectedPoint) => void;
   visibleGrades: Record<GradeFilterKey, boolean>;
   visibleRoutes: Record<BusRoute, boolean>;
@@ -176,7 +221,7 @@ function markerPaint(identity: string, dark: boolean) {
 /**
  * 경유 정류장만은 두 테마 모두 속살을 노선색으로 둔다. 이 점은 '켜 둔 후보가 지나는 자리'를
  * 가리키므로 노선 선과 같은 색으로 채워져야 어느 선의 정류장인지 읽힌다 - 흰 속살로 뒤집으면
- * 361개 일반 정류장과 같은 배색이 되어 구분이 사라진다. 어두운 배경에서는 흰 테두리가
+ * 일반 정류장과 같은 배색이 되어 구분이 사라진다. 어두운 배경에서는 흰 테두리가
  * 점을 드러내는 몫을 맡는다.
  */
 function candidateStopPaint() {
@@ -274,6 +319,8 @@ function nearestPoint(
 // 매칭 테이블 원본 그대로 두고, 지도 색상 표시에만 이 기준을 적용한다.
 
 export default function MapView({
+  demandPeriod,
+  selectedBisRoute,
   onSelect,
   visibleGrades,
   visibleRoutes,
@@ -294,6 +341,7 @@ export default function MapView({
   const visibleRoutesRef = useRef(visibleRoutes);
   const applyRouteFilterRef = useRef<() => void>(() => {});
   const mapRef = useRef<L.Map | null>(null);
+  const fittedBisRouteRef = useRef<string | null>(null);
   const pointsRef = useRef<PointFeature[]>([]);
   const highlightLayerRef = useRef<L.LayerGroup | null>(null);
   // 버전이 바뀌면 지도를 다시 만들지 않고 선 색만 갈아입힌다(줌·이동 상태 유지).
@@ -313,14 +361,14 @@ export default function MapView({
   // 항상 여기 저장해두고, 도로 레이어가 (나중에) 추가된 직후 다시 앞으로 가져와 항상
   // 버스 노선이 DSI 선 위에 보이도록 강제한다.
   const busRouteLayersRef = useRef<L.GeoJSON[]>([]);
-  // 정류장은 노선과 같은 층위(노선 위, 사고 아래)에 둔다. 361개 점이 한꺼번에 붙었다
+  // 정류장은 노선과 같은 층위(노선 위, 사고 아래)에 둔다. 정류장 점이 한꺼번에 붙었다
   // 떨어지면 그때마다 SVG 를 다시 그리므로, 레이어는 한 번만 만들고 지도에서 넣고 뺀다.
   const busStopsLayerRef = useRef<L.GeoJSON | null>(null);
   const landmarksLayerRef = useRef<L.GeoJSON | null>(null);
   const showStopsRef = useRef(showStops);
   const applyStopsRef = useRef<() => void>(() => {});
   const candidateLayersRef = useRef<L.GeoJSON[]>([]);
-  // 켜진 후보가 지나는 정류장. 361개 전체 정류장 레이어와 별개로, 후보 토글을 따라 켜진다.
+  // 켜진 후보가 지나는 정류장. 전체 정류장 레이어와 별개로, 후보 토글을 따라 켜진다.
   const candidateStopsLayerRef = useRef<L.GeoJSON | null>(null);
   // 경유 정류장 이름표를 마우스가 떠난 뒤에도 남겨 둘지. 정류장을 클릭할 때마다 뒤집힌다.
   const stopLabelsPinnedRef = useRef(false);
@@ -881,7 +929,7 @@ export default function MapView({
       .catch(() => null)
       .then((loaded) => {
         if (cancelled || !loaded) return;
-        // 반지름 4px. 361개소가 도심에 몰려 있어 이보다 크면 서로 붙어 도로를 덮는다.
+        // 반지름 4px. 정류장이 도심에 몰려 있어 이보다 크면 서로 붙어 도로를 덮는다.
         // 사고지점(색 속살 + 흰 테두리)과 안팎이 뒤집힌 배색이라 겹쳐 봐도 갈린다.
         const stopsLayer = L.geoJSON(loaded as GeoJSON.GeoJsonObject, {
           pointToLayer: (_feature, latlng) =>
@@ -895,8 +943,7 @@ export default function MapView({
           onEachFeature: (feature, layer) => {
             const p = (feature as unknown as BusStopFeature).properties;
             layer.bindTooltip(
-              `<b>${p.name}</b>` +
-                (p.addr ? `<br/><span style="opacity:.7">${p.addr}</span>` : ""),
+              stationTooltip(p),
               { sticky: true }
             );
           },
@@ -987,6 +1034,97 @@ export default function MapView({
     // 셋은 ref 만 읽어 항상 최신 버전을 보므로 의존성에 넣을 이유도 없다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selectedBisRoute) {
+      fittedBisRouteRef.current = null;
+      return;
+    }
+    const route = selectedBisRoute;
+    if (!map.getPane("bis-route-lines")) map.createPane("bis-route-lines").style.zIndex = "450";
+    if (!map.getPane("bis-route-stops")) map.createPane("bis-route-stops").style.zIndex = "460";
+    const group = L.featureGroup().addTo(map);
+    const lines = route.segments.map((segment) => segment.map(([lon, lat]) => L.latLng(lat, lon)));
+    L.polyline(lines, { pane: "bis-route-lines", color: "#111827", weight: 8, opacity: .7, interactive: false }).addTo(group);
+    const colors = routeDemandColors(route, demandPeriod);
+    const gradients: { node: SVGLinearGradientElement; a: L.LatLng; b: L.LatLng }[] = [];
+    const svgNs = "http://www.w3.org/2000/svg";
+    lines.forEach((segment, segmentIndex) => {
+      for (let i = 1; i < segment.length; i++) {
+        if (segment[i-1].equals(segment[i])) continue;
+        const edge = L.polyline([segment[i-1], segment[i]], {
+          pane: "bis-route-lines", color: colors[segmentIndex][i-1], weight: 5,
+          opacity: 1, interactive: false,
+        }).addTo(group);
+        const path = edge.getElement() as SVGPathElement | undefined;
+        const svg = path?.ownerSVGElement;
+        if (!path || !svg) continue;
+        const gradient = document.createElementNS(svgNs, "linearGradient");
+        gradient.id = `bis-demand-${route.id}-${segmentIndex}-${i}`;
+        gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+        [colors[segmentIndex][i-1], colors[segmentIndex][i]].forEach((color, n) => {
+          const stop = document.createElementNS(svgNs, "stop");
+          stop.setAttribute("offset", String(n));
+          stop.setAttribute("stop-color", color);
+          gradient.appendChild(stop);
+        });
+        svg.appendChild(gradient);
+        path.setAttribute("stroke", `url(#${gradient.id})`);
+        gradients.push({ node: gradient, a: segment[i-1], b: segment[i] });
+      }
+    });
+    const updateGradients = () => gradients.forEach(({ node, a, b }) => {
+      const start = map.latLngToLayerPoint(a), end = map.latLngToLayerPoint(b);
+      node.setAttribute("x1", String(start.x)); node.setAttribute("y1", String(start.y));
+      node.setAttribute("x2", String(end.x)); node.setAttribute("y2", String(end.y));
+    });
+    map.on("zoomend viewreset moveend", updateGradients);
+    updateGradients();
+    const tooltips: L.Tooltip[] = [];
+    let pinnedTooltip: L.Tooltip | null = null;
+    // 반복 경유는 같은 정류장 표식을 중복 생성하지 않고 순번을 함께 표시한다.
+    const stops = new Map<string, { stop: typeof route.stops[number]; orders: string[] }>();
+    route.stops.forEach((stop) => {
+      const existing = stops.get(stop.id);
+      if (existing) existing.orders.push(stop.order);
+      else stops.set(stop.id, { stop, orders: [stop.order] });
+    });
+    stops.forEach(({ stop }) => {
+      const marker = L.circleMarker([stop.coordinates[1], stop.coordinates[0]], {
+        pane: "bis-route-stops", radius: 6, weight: 1.8, opacity: 1, fillOpacity: 1,
+        color: "#ffffff", fillColor: "#475569",
+      }).addTo(group);
+      const label = stationTooltip(stop.stationTotals, route, stop);
+      const tooltip = L.tooltip({ direction: "right", offset: [8, 0] })
+        .setLatLng(marker.getLatLng()).setContent(label);
+      tooltips.push(tooltip);
+      marker.on("mouseover", () => tooltip.addTo(map));
+      marker.on("mouseout", () => {
+        if (pinnedTooltip !== tooltip) tooltip.remove();
+      });
+      marker.on("click", () => {
+        if (pinnedTooltip === tooltip) {
+          pinnedTooltip = null;
+        } else {
+          pinnedTooltip?.remove();
+          pinnedTooltip = tooltip;
+        }
+        tooltip.addTo(map);
+      });
+    });
+    const bounds = L.latLngBounds(lines.flat());
+    if (fittedBisRouteRef.current !== route.id && bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [35, 35], maxZoom: 15 });
+      fittedBisRouteRef.current = route.id;
+    }
+    return () => {
+      tooltips.forEach((tooltip) => tooltip.remove());
+      map.off("zoomend viewreset moveend", updateGradients);
+      gradients.forEach(({ node }) => node.remove());
+      group.remove();
+    };
+  }, [selectedBisRoute, demandPeriod]);
 
   return <div ref={containerRef} style={{ height: "100%", width: "100%" }} />;
 }

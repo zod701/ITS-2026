@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { combineAlpha } from "../versions";
+import type { BisRoute, DemandPeriod } from "../bisRoutes";
+import { routeNetDemandMaximum } from "../routeDemand";
 import {
   BUS_ROUTES,
   BUS_ROUTE_COLORS,
@@ -65,6 +67,12 @@ function swatchBackground(rank: RouteCandidate): string {
 type BusRouteDsiMap = Partial<Record<BusRoute | "overall", DsiParts & { n: number }>>;
 
 interface Props {
+  demandPeriod: DemandPeriod;
+  onDemandPeriodChange: (period: DemandPeriod) => void;
+  bisRoutes: BisRoute[];
+  bisError: boolean;
+  selectedBisRouteId: string;
+  onSelectBisRoute: (id: string) => void;
   visibleRoutes: Record<BusRoute, boolean>;
   onToggleRoute: (key: BusRoute) => void;
   /** 정류장 오버레이. 특정 노선에 속하지 않으므로 노선 목록과 나눠 둔다. */
@@ -80,6 +88,12 @@ interface Props {
 }
 
 export default function BusRouteButton({
+  demandPeriod,
+  onDemandPeriodChange,
+  bisRoutes,
+  bisError,
+  selectedBisRouteId,
+  onSelectBisRoute,
   visibleRoutes,
   onToggleRoute,
   showStops,
@@ -90,6 +104,26 @@ export default function BusRouteButton({
   alpha,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const selectedBisRoute = bisRoutes.find((route) => route.id === selectedBisRouteId);
+  const [routeSort, setRouteSort] = useState<"number" | "annual" | "danoje" | "difference">("annual");
+  const sortValue = (route: BisRoute): number | null => {
+    const annual = route.demandTotals.annual;
+    const danoje = route.demandTotals.danoje;
+    if (routeSort === "annual") return annual == null ? null : annual / 365;
+    if (routeSort === "danoje") return danoje == null ? null : danoje / 8;
+    if (routeSort === "difference") return annual == null || danoje == null ? null : danoje / 8 - annual / 365;
+    return null;
+  };
+  const sortedBisRoutes = [...bisRoutes].sort((a, b) => {
+    if (routeSort !== "number") {
+      const av = sortValue(a), bv = sortValue(b);
+      if (av == null && bv != null) return 1;
+      if (av != null && bv == null) return -1;
+      if (av != null && bv != null && av !== bv) return bv - av;
+    }
+    return a.name.localeCompare(b.name, "ko", { numeric: true }) ||
+      a.company.localeCompare(b.company, "ko") || a.id.localeCompare(b.id);
+  });
   const [routeDsi, setRouteDsi] = useState<BusRouteDsiMap>({});
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
   const [candidateDsi, setCandidateDsi] = useState<CandidateDsiMap>({});
@@ -158,6 +192,7 @@ export default function BusRouteButton({
     return rec ? dsiValue(rec) : c.mean_dsi;
   };
   const anyOn =
+    Boolean(selectedBisRouteId) ||
     BUS_ROUTES.some((r) => visibleRoutes[r]) ||
     showStops ||
     ROUTE_CANDIDATES.some((r) => visibleCandidates[r]);
@@ -179,6 +214,47 @@ export default function BusRouteButton({
 
       {open && (
         <div className="bus-panel" role="dialog" aria-label="버스 노선">
+          <div className="bus-panel-head">강릉시 BIS 노선 · {bisRoutes.length}개</div>
+          <select className="bis-select" aria-label="노선 정렬" value={routeSort}
+            onChange={(e) => setRouteSort(e.target.value as typeof routeSort)}>
+            <option value="number">노선번호 순</option>
+            <option value="annual">2025 승하차량 순 ↓</option>
+            <option value="danoje">2025 단오제 승하차량 순 ↓</option>
+            <option value="difference">단오제 일평균 − 연간 일평균 순 ↓</option>
+          </select>
+          {routeSort !== "number" && <div className="bus-sub">
+            일평균 승차+하차 · 내림차순 · 기록 없음은 마지막
+            {routeSort === "difference" && <><br />단오제 합계 ÷ 8 − 연간 합계 ÷ 365 (승하차 건/일)</>}
+          </div>}
+          <select
+            className="bis-select"
+            aria-label="BIS 노선 선택"
+            value={selectedBisRouteId}
+            onChange={(e) => onSelectBisRoute(e.target.value)}
+            disabled={!bisRoutes.length}
+          >
+            <option value="">{bisError ? "노선을 불러오지 못했습니다" : bisRoutes.length ? "노선 선택 (표시 해제)" : "노선 불러오는 중…"}</option>
+            {sortedBisRoutes.map((route) => (
+              <option key={route.id} value={route.id}>
+                {route.name} · {route.company} · {route.start} → {route.end} [{route.id}]
+                {routeSort !== "number" && ` · ${sortValue(route) == null ? "기록 없음" : `${sortValue(route)!.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}건/일`}`}
+              </option>
+            ))}
+          </select>
+          <select className="bis-select" aria-label="승하차 수요 기간" value={demandPeriod}
+            onChange={(e) => onDemandPeriodChange(e.target.value as DemandPeriod)}>
+            <option value="annual">2025 전체</option>
+            <option value="danoje">강릉단오제 · 2025.5.27~6.3</option>
+          </select>
+          <div className="demand-legend">
+            <div>순승차(승차−하차): 양수 빨강 · 음수 파랑 · 0 중립색</div>
+            <div className="demand-ramp" />
+            <div>연함 → 차이 작음 · 진함 → 차이 큼</div>
+            {selectedBisRoute && <div>
+              순승차 일평균 색상 범위: ±{(routeNetDemandMaximum(selectedBisRoute, demandPeriod) / (demandPeriod === "annual" ? 365 : 8)).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}명/일
+            </div>}
+          </div>
+          <div className="bus-sep" />
           <div className="bus-panel-head">기존 자율주행 버스 노선</div>
           <div className="bus-list">
             {BUS_ROUTES.map((route) => {
@@ -209,11 +285,11 @@ export default function BusRouteButton({
               className={`bus-item ${showStops ? "" : "bus-item-off"}`}
               onClick={onToggleStops}
               aria-pressed={showStops}
-              title="VWorld 지명검색으로 모은 지도 범위 안의 버스정류장. 경유노선·상하행 정보는 없다."
+              title="강릉시 BIS의 정류장 ID·좌표에 2025년 연간 및 단오제 기간 승하차를 결합한 지도 범위 내 정류장."
             >
               <span className="bus-dot" style={{ background: BUS_STOP_COLOR }} />
               <span className="bus-label">버스 정류장</span>
-              <span className="bus-dsi">361개소</span>
+              <span className="bus-dsi">431개소</span>
             </button>
           </div>
 
@@ -301,6 +377,9 @@ export default function BusRouteButton({
           right: 0;
           z-index: 1;
           min-width: 210px;
+          width: min(390px, calc(100vw - 80px));
+          max-height: 75vh;
+          overflow-y: auto;
           background: var(--panel-bg);
           color: var(--foreground);
           border: 1px solid var(--border-color);
@@ -316,6 +395,19 @@ export default function BusRouteButton({
           color: var(--text-muted);
           margin-bottom: 8px;
         }
+        .bis-select {
+          width: 100%;
+          padding: 7px;
+          margin-bottom: 8px;
+          background: var(--panel-bg);
+          color: var(--foreground);
+          border: 1px solid var(--border-color);
+          border-radius: 4px;
+          font: inherit;
+          font-size: 12px;
+        }
+        .demand-legend { font-size: 11px; line-height: 1.6; margin-bottom: 8px; color: var(--text-muted); }
+        .demand-ramp { height: 6px; margin: 4px 0; background: linear-gradient(90deg, #ef3340, #e5e7eb, #2563eb); border-radius: 3px; }
         .bus-list {
           display: flex;
           flex-direction: column;

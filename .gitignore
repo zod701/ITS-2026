@@ -6,7 +6,6 @@ img/
 output/
 /GIS/노드링크/
 /GIS/실폭도로/
-/demand/
 /emme/
 
 *.pdf
@@ -17,3 +16,6 @@ rclone_log.txt
 GIS/historical_panoids.csv
 
 web/public/data/point_detail_*/
+
+/demand/smartcard data/
+/demand/processed/routes/raw/

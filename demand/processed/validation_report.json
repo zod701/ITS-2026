@@ -1,0 +1,212 @@
+{
+  "bis_inventory_count": 1271,
+  "web_old_count": 361,
+  "web_new_count": 431,
+  "coordinate_missing": 0,
+  "api_name_mismatches": 0,
+  "daily_year_assumption": "2025, from user-requested festival year; filenames contain MMDD only",
+  "counts_order": [
+    "ride_nope",
+    "goff_nope"
+  ],
+  "totals": {
+    "2025": {
+      "source": [
+        7898451,
+        4001561
+      ],
+      "joined_bis": [
+        7874467,
+        3997054
+      ],
+      "unmatched": [
+        23984,
+        4507
+      ],
+      "matched_ids": 1211,
+      "unmatched_ids": 19
+    },
+    "danoje_total": {
+      "source": [
+        216314,
+        107681
+      ],
+      "joined_bis": [
+        215706,
+        107562
+      ],
+      "unmatched": [
+        608,
+        119
+      ],
+      "matched_ids": 1057,
+      "unmatched_ids": 17
+    },
+    "2025-05-27": {
+      "source": [
+        28279,
+        13333
+      ],
+      "joined_bis": [
+        28193,
+        13316
+      ],
+      "unmatched": [
+        86,
+        17
+      ],
+      "matched_ids": 847,
+      "unmatched_ids": 12
+    },
+    "2025-05-28": {
+      "source": [
+        26238,
+        12286
+      ],
+      "joined_bis": [
+        26155,
+        12267
+      ],
+      "unmatched": [
+        83,
+        19
+      ],
+      "matched_ids": 802,
+      "unmatched_ids": 14
+    },
+    "2025-05-29": {
+      "source": [
+        27937,
+        13372
+      ],
+      "joined_bis": [
+        27879,
+        13360
+      ],
+      "unmatched": [
+        58,
+        12
+      ],
+      "matched_ids": 833,
+      "unmatched_ids": 13
+    },
+    "2025-05-30": {
+      "source": [
+        31182,
+        15444
+      ],
+      "joined_bis": [
+        31096,
+        15430
+      ],
+      "unmatched": [
+        86,
+        14
+      ],
+      "matched_ids": 849,
+      "unmatched_ids": 15
+    },
+    "2025-05-31": {
+      "source": [
+        29133,
+        15381
+      ],
+      "joined_bis": [
+        29062,
+        15368
+      ],
+      "unmatched": [
+        71,
+        13
+      ],
+      "matched_ids": 798,
+      "unmatched_ids": 12
+    },
+    "2025-06-01": {
+      "source": [
+        22016,
+        12091
+      ],
+      "joined_bis": [
+        21964,
+        12083
+      ],
+      "unmatched": [
+        52,
+        8
+      ],
+      "matched_ids": 724,
+      "unmatched_ids": 11
+    },
+    "2025-06-02": {
+      "source": [
+        28561,
+        13898
+      ],
+      "joined_bis": [
+        28458,
+        13878
+      ],
+      "unmatched": [
+        103,
+        20
+      ],
+      "matched_ids": 814,
+      "unmatched_ids": 15
+    },
+    "2025-06-03": {
+      "source": [
+        22968,
+        11876
+      ],
+      "joined_bis": [
+        22899,
+        11860
+      ],
+      "unmatched": [
+        69,
+        16
+      ],
+      "matched_ids": 777,
+      "unmatched_ids": 11
+    }
+  },
+  "location_comparison": {
+    "method": "name/ID-backed smartcard alias + nearest <=200m, runner-up gap >=5m, unique target",
+    "accepted_pairs": 190,
+    "unresolved_old_points": 171,
+    "thresholds": {
+      "10": {
+        "count": 44,
+        "percent_of_accepted": 23.16
+      },
+      "20": {
+        "count": 11,
+        "percent_of_accepted": 5.79
+      },
+      "50": {
+        "count": 4,
+        "percent_of_accepted": 2.11
+      },
+      "100": {
+        "count": 1,
+        "percent_of_accepted": 0.53
+      }
+    }
+  },
+  "source_sha256": {
+    "demand\\강릉시버스정류장_bis.txt": "5312fe4f576379cf60e10b7bc5569f6ba2856db4859db8de7027e8e0a7057289",
+    "demand\\processed\\bis_station_snapshot.json": "4743c5a351cf55092867e6b623f3d3e3ee41be24dcb6473c2bc564e5c7773bd0",
+    "demand\\smartcard data\\2025.csv": "2cb7f91a79330f37d0420f64826316ed08fac9013758cf55a69f062f739b11e4",
+    "demand\\smartcard data\\station_0527.csv": "0938a9518c9179b5390e4aa8873e5cad841e045ad648900cb0a4ec52b81a9d50",
+    "demand\\smartcard data\\station_0528.csv": "0b6f1eed148efdcb93f598d3a5b0751f5dc6292b8980ab453eb50fe0d2caf01c",
+    "demand\\smartcard data\\station_0529.csv": "73e62afd645eb555904c6b72609b9ad6eb81202f1a88abae99ac5ab7cadce326",
+    "demand\\smartcard data\\station_0530.csv": "cb28c08d6c8ada60bce0ca188269b463a60f18ff0299932ce4e9296587685d65",
+    "demand\\smartcard data\\station_0531.csv": "e473acbe0273624e2d59ed591b876454f8135ee1b3dce87f363b3a2c12b17f44",
+    "demand\\smartcard data\\station_0601.csv": "0f0b4aca6c5ee2746d9c22aa01e5f749dc105e1933c50e79413498424fe4e868",
+    "demand\\smartcard data\\station_0602.csv": "62bbf786dcd35f9795e1fb77a7fa828c02d9a9a76fb660bed7d8b392de1cc5e4",
+    "demand\\smartcard data\\station_0603.csv": "5215c2029ec8adb566d50607d5c6fb46de14f0ca5714b53b9b25f742a3818a67",
+    "demand\\smartcard data\\station_year.csv": "8439a548f836518db26023293d36ab430db5f27263924635a3b9fe40c15267ee",
+    "demand\\processed\\bus_stops_vworld_original.geojson": "eb3c59a142b9b7e213910a610204e200bccdf9200ee32db67139611c6a232eb4"
+  }
+}

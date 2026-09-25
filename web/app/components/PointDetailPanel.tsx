@@ -162,6 +162,17 @@ export default function PointDetailPanel({ point, version, alpha, onClose }: Pro
     onBlur: () => setTip(null),
   });
 
+  // 사진은 Drive 에서 오므로 몇 초씩 걸린다. 각 사진 자리 한가운데에 스피너를 두고
+  // 그 <img> 가 onLoad/onError 를 내면 걷는다. 키에 URL 을 넣어 지점이나 버전이 바뀌어
+  // 새 URL 이 오면 자동으로 다시 '로딩 중'이 된다.
+  const [imgLoaded, setImgLoaded] = useState<Record<string, boolean>>({});
+  const imgLoadProps = (key: string) => ({
+    onLoad: () => setImgLoaded((prev) => ({ ...prev, [key]: true })),
+    onError: () => setImgLoaded((prev) => ({ ...prev, [key]: true })),
+  });
+  const spinner = (key: string) =>
+    imgLoaded[key] ? null : <div className="img-loading" aria-hidden="true" />;
+
   const [linkCopied, setLinkCopied] = useState(false);
   const [panoIdCopied, setPanoIdCopied] = useState(false);
 
@@ -607,25 +618,35 @@ export default function PointDetailPanel({ point, version, alpha, onClose }: Pro
                     src={imageUrl}
                     alt={`지점 ${point.pointId} 스트리트뷰`}
                     className="pano-crop-image"
+                    {...imgLoadProps(`pano:${imageUrl}`)}
                   />
+                  {spinner(`pano:${imageUrl}`)}
                 </div>
               </div>
             )}
             {segImageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={segImageUrl}
-                alt={`지점 ${point.pointId} 세그멘테이션 결과`}
-                className="detail-panel-image"
-              />
+              <div className={`img-slot ${imgLoaded[`seg:${segImageUrl}`] ? "" : "is-loading"}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={segImageUrl}
+                  alt={`지점 ${point.pointId} 세그멘테이션 결과`}
+                  className="detail-panel-image"
+                  {...imgLoadProps(`seg:${segImageUrl}`)}
+                />
+                {spinner(`seg:${segImageUrl}`)}
+              </div>
             )}
             {depthImageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={depthImageUrl}
-                alt={`지점 ${point.pointId} 깊이 추정 결과`}
-                className="detail-panel-image"
-              />
+              <div className={`img-slot ${imgLoaded[`depth:${depthImageUrl}`] ? "" : "is-loading"}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={depthImageUrl}
+                  alt={`지점 ${point.pointId} 깊이 추정 결과`}
+                  className="detail-panel-image"
+                  {...imgLoadProps(`depth:${depthImageUrl}`)}
+                />
+                {spinner(`depth:${depthImageUrl}`)}
+              </div>
             )}
           </div>
           <div className="bev-group">
@@ -642,7 +663,9 @@ export default function PointDetailPanel({ point, version, alpha, onClose }: Pro
                     alt={`지점 ${point.pointId} BEV 점유 격자 (${version})`}
                     className="bev-crop-image"
                     style={cropImageStyle(bevLayout.occupancy, bevLayout)}
+                    {...imgLoadProps(`bev1:${bevImageUrl}`)}
                   />
+                  {spinner(`bev1:${bevImageUrl}`)}
                 </div>
                 <div className="bev-shadow-col">
                   <div className="bev-shadow-crop" style={cropBoxStyle(bevLayout.shadow)}>
@@ -652,7 +675,9 @@ export default function PointDetailPanel({ point, version, alpha, onClose }: Pro
                       alt={`지점 ${point.pointId} BEV 음영(건물) (${version})`}
                       className="bev-crop-image"
                       style={cropImageStyle(bevLayout.shadow, bevLayout)}
+                      {...imgLoadProps(`bev2:${bevImageUrl}`)}
                     />
+                    {spinner(`bev2:${bevImageUrl}`)}
                   </div>
                   <div className="bev-shadow-crop" style={cropBoxStyle(bevLayout.shadowVeh)}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -661,7 +686,9 @@ export default function PointDetailPanel({ point, version, alpha, onClose }: Pro
                       alt={`지점 ${point.pointId} BEV 음영(차량 포함) (${version})`}
                       className="bev-crop-image"
                       style={cropImageStyle(bevLayout.shadowVeh, bevLayout)}
+                      {...imgLoadProps(`bev3:${bevImageUrl}`)}
                     />
+                    {spinner(`bev3:${bevImageUrl}`)}
                   </div>
                 </div>
               </div>
@@ -999,6 +1026,41 @@ export default function PointDetailPanel({ point, version, alpha, onClose }: Pro
           height: auto;
           border-radius: 4px;
           object-fit: contain;
+        }
+        /* 세그·깊이 사진 자리. 로딩 중에는 이미지 높이가 0 이라 스피너를 가운데 둘 곳이
+           없으므로, 실제 사진 비율(4방향 가로 결합 = 4:1)로 자리를 미리 잡는다. */
+        .img-slot {
+          position: relative;
+          width: 100%;
+        }
+        .img-slot.is-loading {
+          aspect-ratio: 4 / 1;
+        }
+        /* 사진이 올 때까지 그 자리 한가운데를 채우는 스피너. 컨테이너가 모두
+           position:relative 이므로 inset:0 으로 정확히 그 사진 크기만큼 덮는다. */
+        .img-loading {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--panel-meta-bg);
+          border-radius: 4px;
+          pointer-events: none;
+        }
+        .img-loading::after {
+          content: "";
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          border: 2px solid var(--border-color);
+          border-top-color: var(--link-color);
+          animation: img-spin 0.8s linear infinite;
+        }
+        @keyframes img-spin {
+          to {
+            transform: rotate(360deg);
+          }
         }
         .pano-crop {
           /* 원본은 좌/정면/우/후/아래/위 6분할 가로 스트립. 오른쪽 2/6(아래/위)을

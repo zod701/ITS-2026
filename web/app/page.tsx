@@ -19,6 +19,7 @@ import MapLegend, {
 import AccidentButton from "./components/AccidentButton";
 import PoiButton from "./components/PoiButton";
 import BusRouteButton from "./components/BusRouteButton";
+import type { BisRoute, DemandPeriod } from "./bisRoutes";
 import PointDetailPanel from "./components/PointDetailPanel";
 import SearchBox from "./components/SearchBox";
 import ThemeToggle from "./components/ThemeToggle";
@@ -59,6 +60,25 @@ function HomeInner() {
   );
   // 정류장도 노선·사고와 같은 대조 자료라 기본 꺼짐 - 첫 화면은 DSI 지도 그대로 둔다.
   const [showStops, setShowStops] = useState(false);
+  const [bisRoutes, setBisRoutes] = useState<BisRoute[]>([]);
+  const [bisError, setBisError] = useState(false);
+  const [selectedBisRouteId, setSelectedBisRouteId] = useState("");
+  const [demandPeriod, setDemandPeriod] = useState<DemandPeriod>("annual");
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/data/bis_routes.json")
+      .then((res) => {
+        if (!res.ok) throw new Error("BIS routes unavailable");
+        return res.json();
+      })
+      .then((routes: BisRoute[]) => {
+        if (!cancelled) setBisRoutes(routes.sort((a, b) =>
+          a.name.localeCompare(b.name, "ko", { numeric: true }) || a.company.localeCompare(b.company, "ko")
+        ));
+      })
+      .catch(() => { if (!cancelled) setBisError(true); });
+    return () => { cancelled = true; };
+  }, []);
   // 제안 노선도 다른 오버레이와 마찬가지로 기본 꺼짐 - 첫 화면은 DSI 지도 그대로 둔다.
   const [visibleCandidates, setVisibleCandidates] = useState<Record<RouteCandidate, boolean>>(
     Object.fromEntries(ROUTE_CANDIDATES.map((r) => [r, false])) as Record<RouteCandidate, boolean>
@@ -101,12 +121,18 @@ function HomeInner() {
     );
   };
   const toggleRoute = (key: BusRoute) => {
+    if (!visibleRoutes[key]) setAllGrades(false);
     setVisibleRoutes((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+  const selectBisRoute = (id: string) => {
+    if (id && id !== selectedBisRouteId) setAllGrades(false);
+    setSelectedBisRouteId(id);
   };
   const toggleStops = () => {
     setShowStops((prev) => !prev);
   };
   const toggleCandidate = (rank: RouteCandidate) => {
+    if (!visibleCandidates[rank]) setAllGrades(false);
     setVisibleCandidates((prev) => ({ ...prev, [rank]: !prev[rank] }));
   };
   const toggleLandmark = (name: string) => {
@@ -180,6 +206,8 @@ function HomeInner() {
   return (
     <main className="app-main">
       <MapView
+        demandPeriod={demandPeriod}
+        selectedBisRoute={bisRoutes.find((r) => r.id === selectedBisRouteId) ?? null}
         onSelect={selectPoint}
         visibleGrades={visibleGrades}
         visibleRoutes={visibleRoutes}
@@ -219,6 +247,12 @@ function HomeInner() {
           onSetAllLandmarks={setAllLandmarks}
         />
         <BusRouteButton
+          demandPeriod={demandPeriod}
+          onDemandPeriodChange={setDemandPeriod}
+          bisRoutes={bisRoutes}
+          bisError={bisError}
+          selectedBisRouteId={selectedBisRouteId}
+          onSelectBisRoute={selectBisRoute}
           visibleRoutes={visibleRoutes}
           onToggleRoute={toggleRoute}
           showStops={showStops}

@@ -1,0 +1,110 @@
+{
+  "source_totals_ride_goff": [
+    216314,
+    107681
+  ],
+  "source_routes": 121,
+  "matched_current_routes": 110,
+  "unmatched_current_route_ids": [
+    "42002080",
+    "42002083",
+    "42092075",
+    "42092103",
+    "42101048",
+    "42101049",
+    "42101054",
+    "43104005",
+    "43107001",
+    "43107002",
+    "43107003"
+  ],
+  "current_routes_without_2025_records": [
+    "42001013",
+    "42002002",
+    "42002024",
+    "42002061",
+    "42002099",
+    "42002100",
+    "42002101",
+    "42002102",
+    "42002126",
+    "42002129",
+    "42002140",
+    "42002153",
+    "42002154",
+    "42002155",
+    "42002157",
+    "42091006",
+    "42091013",
+    "42092104",
+    "42092142",
+    "42092153",
+    "42092155",
+    "42092156"
+  ],
+  "route_stop_rows": 4138,
+  "top_rows": 1190,
+  "route_stop_pairs_not_on_current_route": 106,
+  "ranking": "positive counts, competition rank, unknown stop ID excluded; shares use full route totals",
+  "period_start": "2025-05-27",
+  "period_end": "2025-06-03",
+  "days_supplied": 8,
+  "daily_validation": [
+    {
+      "date": "20250527",
+      "raw_rows": 13485,
+      "ride_nope": 28279,
+      "goff_nope": 13333,
+      "prior_station_csv_mismatched_ids": 0
+    },
+    {
+      "date": "20250528",
+      "raw_rows": 12927,
+      "ride_nope": 26238,
+      "goff_nope": 12286,
+      "prior_station_csv_mismatched_ids": 0
+    },
+    {
+      "date": "20250529",
+      "raw_rows": 13462,
+      "ride_nope": 27937,
+      "goff_nope": 13372,
+      "prior_station_csv_mismatched_ids": 0
+    },
+    {
+      "date": "20250530",
+      "raw_rows": 14152,
+      "ride_nope": 31182,
+      "goff_nope": 15444,
+      "prior_station_csv_mismatched_ids": 0
+    },
+    {
+      "date": "20250531",
+      "raw_rows": 12238,
+      "ride_nope": 29133,
+      "goff_nope": 15381,
+      "prior_station_csv_mismatched_ids": 0
+    },
+    {
+      "date": "20250601",
+      "raw_rows": 10682,
+      "ride_nope": 22016,
+      "goff_nope": 12091,
+      "prior_station_csv_mismatched_ids": 0
+    },
+    {
+      "date": "20250602",
+      "raw_rows": 13573,
+      "ride_nope": 28561,
+      "goff_nope": 13898,
+      "prior_station_csv_mismatched_ids": 0
+    },
+    {
+      "date": "20250603",
+      "raw_rows": 10817,
+      "ride_nope": 22968,
+      "goff_nope": 11876,
+      "prior_station_csv_mismatched_ids": 0
+    }
+  ]
+}
